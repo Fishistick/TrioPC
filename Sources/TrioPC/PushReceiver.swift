@@ -58,14 +58,16 @@ final class PushReceiver: ObservableObject {
     func deliveredTest(id: UUID) async -> LoopbackReceipt? {
         // Alert pushes can reach Notification Center while the app is in the background,
         // without a foreground delegate callback. Inspect only this app's notifications.
-        let notifications = await UNUserNotificationCenter.current().deliveredNotifications()
-        for notification in notifications {
-            if let receipt = Self.parseTest(notification.request.content.userInfo), receipt.id == id {
-                receiveTest(receipt)
-                return receipt
+        let receipt: LoopbackReceipt? = await withCheckedContinuation { continuation in
+            UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
+                // Parse in the callback: UNNotification is not Sendable in older SDKs.
+                let match = notifications.compactMap { Self.parseTest($0.request.content.userInfo) }
+                    .first { $0.id == id }
+                continuation.resume(returning: match)
             }
         }
-        return nil
+        if let receipt { receiveTest(receipt) }
+        return receipt
     }
 
     nonisolated static func parseTest(_ payload: [AnyHashable: Any]) -> LoopbackReceipt? {
@@ -175,6 +177,7 @@ final class APNsSenderModel: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var message = "Import an APNs signing key to send a synthetic notification to this Mac."
     @Published private(set) var test: LoopbackTest?
+    @Published private(set) var deliveryLogID: String?
     private var pem = ""
     private let sender = APNsTestSender()
     private var timeout: Task<Void, Never>?
@@ -255,6 +258,7 @@ final class APNsSenderModel: ObservableObject {
             let credentials = try APNsCredentials(teamID: teamID, keyID: keyID, privateKeyPEM: pem)
             let recipient = try MacTestRecipient(token: token, topic: topic, environment: environment)
             let pending = LoopbackTest()
+            deliveryLogID = nil
             test = pending; message = "Sending synthetic notification to this Mac…"
             timeout?.cancel()
             timeout = Task { [weak self] in
@@ -270,7 +274,8 @@ final class APNsSenderModel: ObservableObject {
                 current.unknown(); self.test = current
                 self.message = "No matching return within 30 seconds. No automatic retry was sent. A late return can still confirm this test."
             }
-            try await sender.send(pending, to: recipient, credentials: credentials)
+            let submission = try await sender.send(pending, to: recipient, credentials: credentials)
+            deliveryLogID = submission.deliveryLogID
             if var current = test, current.id == pending.id {
                 current.accepted(); test = current
                 if current.state == .awaitingReturn { message = "Apple accepted the test. Waiting for this Mac to receive it…" }
@@ -317,6 +322,13 @@ struct APNsSenderPanel: View {
             Text(model.message).font(DeskTheme.label).textSelection(.enabled)
             if let test = model.test {
                 Text("Test ID: \(test.id.uuidString)").font(DeskTheme.code).foregroundStyle(DeskTheme.muted)
+                if let logID = model.deliveryLogID {
+                    Text("Apple delivery log ID: \(logID)").font(DeskTheme.code).textSelection(.enabled)
+                    Button("Copy Apple delivery log ID") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(logID, forType: .string)
+                    }
+                }
                 Button("Check received test") { Task { await model.checkDelivery() } }.disabled(model.busy)
             }
         }.onReceive(push.$testReceipt) { model.receive($0) }

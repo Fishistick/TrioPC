@@ -51,12 +51,23 @@ final class APNsTestSenderTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "apns-topic"), "com.example.mac")
         XCTAssertEqual(request.value(forHTTPHeaderField: "apns-push-type"), "alert")
         XCTAssertEqual(request.value(forHTTPHeaderField: "apns-priority"), "10")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "apns-expiration"), "0")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "apns-expiration"), String(Int(test.createdAt.timeIntervalSince1970) + 60))
         XCTAssertEqual(request.value(forHTTPHeaderField: "apns-id"), test.id.uuidString.lowercased())
         let body = try XCTUnwrap(request.httpBody)
         XCTAssertEqual(try LoopbackReceipt.parse(body).id, test.id)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
         for key in ["command_type", "bolus_amount", "encrypted_data", "return_notification"] { XCTAssertNil(json[key]) }
+    }
+
+    func testSubmissionExposesOnlyBoundedDeliveryLogID() async throws {
+        for (header, expected) in [("example-delivery-id_123", Optional("example-delivery-id_123")), ("unexpected header text", nil), (String(repeating: "a", count: 257), nil)] {
+            let sender = APNsTestSender(transport: { request in
+                (Data(), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                    headerFields: ["apns-unique-id": header, "unrelated-secret": "never expose"])!)
+            })
+            let result = try await sender.send(LoopbackTest(), to: MacTestRecipient(token: "ab12", topic: "com.example.mac", environment: .development), credentials: credentials())
+            XCTAssertEqual(result.deliveryLogID, expected)
+        }
     }
 
     func testProviderTokenIsReusedForSameCredentials() async throws {

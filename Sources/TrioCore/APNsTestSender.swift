@@ -100,6 +100,19 @@ public struct LoopbackTest: Sendable {
     }
 }
 
+public struct APNsTestSubmission: Sendable {
+    public let deliveryLogID: String?
+    init(response: HTTPURLResponse) {
+        // Only retain the documented opaque diagnostic ID, never arbitrary headers.
+        let value = response.value(forHTTPHeaderField: "apns-unique-id")
+        deliveryLogID = value.flatMap { id in
+            guard !id.isEmpty, id.utf8.count <= 256,
+                  id.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95 }) else { return nil }
+            return id
+        }
+    }
+}
+
 private final class APNsNoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
@@ -114,7 +127,8 @@ public actor APNsTestSender {
     private var cache: (identity: String, issuedAt: Date, jwt: String)?
     public init(transport: Transport? = nil) { self.transport = transport }
 
-    public func send(_ test: LoopbackTest, to recipient: MacTestRecipient, credentials: APNsCredentials, now: Date = Date()) async throws {
+    @discardableResult
+    public func send(_ test: LoopbackTest, to recipient: MacTestRecipient, credentials: APNsCredentials, now: Date = Date()) async throws -> APNsTestSubmission {
         let jwt: String
         if let cache, cache.identity == credentials.identity, now.timeIntervalSince(cache.issuedAt) >= 0,
            now.timeIntervalSince(cache.issuedAt) < 50 * 60 {
@@ -131,7 +145,9 @@ public actor APNsTestSender {
         request.setValue(recipient.topic, forHTTPHeaderField: "apns-topic")
         request.setValue("alert", forHTTPHeaderField: "apns-push-type")
         request.setValue("10", forHTTPHeaderField: "apns-priority")
-        request.setValue("0", forHTTPHeaderField: "apns-expiration")
+        // Synthetic tests may wait briefly for the Mac’s APNs connection.
+        // This retention policy must not be reused for insulin commands.
+        request.setValue(String(Int(test.createdAt.timeIntervalSince1970) + 60), forHTTPHeaderField: "apns-expiration")
         request.setValue(test.id.uuidString.lowercased(), forHTTPHeaderField: "apns-id")
         request.httpBody = try test.payload()
         let configuration = URLSessionConfiguration.ephemeral
@@ -143,7 +159,7 @@ public actor APNsTestSender {
         do { (data, response) = try await send(request) }
         catch { throw APNsTestError.transportUncertain }
         guard let response = response as? HTTPURLResponse else { throw APNsTestError.transportUncertain }
-        guard response.statusCode != 200 else { return }
+        guard response.statusCode != 200 else { return APNsTestSubmission(response: response) }
         // Never surface arbitrary server text, headers, URLs or credentials in errors/logs.
         struct Reason: Decodable { let reason: String }
         let allowed = ["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered", "InvalidProviderToken", "ExpiredProviderToken", "Forbidden", "BadTopic", "TopicDisallowed", "TooManyRequests", "TooManyProviderTokenUpdates", "BadEnvironmentKeyIdInToken", "BadEnvironment", "InternalServerError", "ServiceUnavailable", "PayloadTooLarge", "MissingTopic"]

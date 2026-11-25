@@ -41,10 +41,17 @@ After receiver registration works:
 3. Select Send test to this Mac. The recipient, topic and environment come from this running app; no iPhone token or Trio shared secret is used.
 4. Keep the app open. The UI first distinguishes submission to Apple from receipt of the notification with the same random test UUID. Only that matching return displays Round trip confirmed. A legacy Trio response cannot confirm a self-test.
 
-The private key is validated as P-256 and stored with its IDs in a separate macOS Keychain item. Its contents are never displayed or logged. Load saved restores it in a later app session; Forget saved removes that Keychain item but does not delete the original `.p8` file. The sender caches its ES256 provider token for up to 50 minutes to avoid frequent token updates. It uses only Apple's development/production HTTPS endpoints, refuses redirects and sends `apns-expiration: 0`.
+The private key is validated as P-256 and stored with its IDs in a separate macOS Keychain item. Its contents are never displayed or logged. Load saved restores it in a later app session; Forget saved removes that Keychain item but does not delete the original `.p8` file. The sender caches its ES256 provider token for up to 50 minutes to avoid frequent token updates. It uses only Apple's development/production HTTPS endpoints, refuses redirects and gives synthetic tests a 60-second APNs retention window.
 
 A network timeout does not prove that Apple rejected the notification. There is no automatic send retry. While waiting, the app checks its own delivered notifications for the matching UUID, including alerts delivered while it was in the background. After 30 seconds without a matching return, the test is unconfirmed; a late matching notification can still resolve it. Check received test can inspect Notification Center again, but a notification that was already dismissed may no longer be available. This UUID matching is a synthetic notification diagnostic, not dosing-command authentication or pump verification.
 
 Changing either credential ID marks the form as unsaved and requires Save credentials before sending. Refreshing or loading unchanged values must not disable the test button.
 
 References: [Apple APNs registration](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns), [notification handling](https://developer.apple.com/documentation/usernotifications/unusernotificationcenterdelegate), [Trio response source](https://github.com/nightscout/Trio/blob/0b29cd53415e7f0e668677749cad8daf81c68c2f/Trio/Sources/Services/RemoteControl/RemoteNotificationResponseManager.swift).
+
+
+## If Apple accepts a test but it does not return
+
+For development pushes, TrioPC shows and can copy Apple's `apns-unique-id` response header. Paste it into the Mac App ID's Delivery Log in Apple's Push Notifications Console. This distinguishes rejection, expiry in transit and device delivery; HTTP 200 alone proves only acceptance. No private key or device token is copied by this diagnostic button.
+
+Synthetic tests expire 60 seconds after creation, allowing a brief interruption in the Mac's push connection. An earlier zero-expiry test could be accepted and then discarded in transit. The app still sends once and never retries automatically. The 30-second UI deadline is an observation timeout; a matching late receipt can confirm it. This retention policy applies only to harmless synthetic tests and must not be reused for dosing commands.

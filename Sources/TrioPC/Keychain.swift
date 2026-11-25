@@ -1,0 +1,39 @@
+import Foundation
+import Security
+
+enum Keychain {
+    private static let service = "com.fishistick.TrioPC.nightscout"
+    static func read() throws -> String {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: "api-secret",
+            kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return "" }
+        guard status == errSecSuccess, let data = result as? Data, let text = String(data: data, encoding: .utf8)
+        else { throw KeychainError(status: status) }
+        return text
+    }
+    static func save(_ value: String) throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: "api-secret"]
+        if value.isEmpty {
+            let status = SecItemDelete(query as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
+            return
+        }
+        let values = [kSecValueData as String: Data(value.utf8)]
+        let status = SecItemUpdate(query as CFDictionary, values as CFDictionary)
+        if status == errSecItemNotFound {
+            var item = query.merging(values) { _, new in new }
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            let added = SecItemAdd(item as CFDictionary, nil)
+            guard added == errSecSuccess else { throw KeychainError(status: added) }
+        } else if status != errSecSuccess { throw KeychainError(status: status) }
+    }
+}
+
+struct KeychainError: LocalizedError {
+    let status: OSStatus
+    var errorDescription: String? { "Keychain could not save or read the API secret (\(status))." }
+}

@@ -1,0 +1,17 @@
+name: Mac build and tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+      - run: bash scripts/build-app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TrioPC-macOS
+          path: dist/TrioPC-macOS.zip

@@ -4,7 +4,7 @@ A native SwiftUI Mac companion for Trio and Nightscout. macOS 14 or later; no El
 
 **Contributors welcome.** This is an early prototype with working monitoring code and a command simulator. Help is wanted with SwiftUI accessibility, Nightscout compatibility, synthetic test fixtures and the reliable-control protocol. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and [the control design](docs/control-design.md).
 
-## First build: 0.1.0
+## Current build: 0.2.0
 
 - Nightscout glucose history, trend, reading age and recent treatments.
 - mmol/L and mg/dL, selectable chart windows, menu-bar glucose, and automatic refresh every minute while open.
@@ -12,7 +12,9 @@ A native SwiftUI Mac companion for Trio and Nightscout. macOS 14 or later; no El
 - HTTPS only, redirect refusal, ephemeral network sessions, and API secret stored in macOS Keychain.
 - Clearly labelled sample data and an in-memory command simulator for lost replies, partial delivery and completion.
 
-**Live bolus commands, remote cancellation and APNs are not implemented.** The simulator cannot send insulin commands. It is not a validated dosing system. Nightscout treatment history is not command confirmation.
+- Opt-in APNs registration and an advisory legacy-reply inspector in Command lab, using a separately provisioned Xcode app target.
+
+**Live bolus commands and remote cancellation are not implemented.** The simulator cannot send insulin commands. The APNs receiver does not correlate commands or verify insulin delivery. It is not a validated dosing system. Nightscout treatment history is not command confirmation.
 
 ## Run
 
@@ -25,6 +27,8 @@ open dist/TrioPC.app
 ```
 
 The script produces a locally ad-hoc signed app and `dist/TrioPC-macOS.zip`. Keychain may request permission; rebuilding can change the app's signing identity. This is not a notarized distribution build. GitHub Actions also builds and tests the app and uploads the zipped app artifact.
+
+For real APNs registration, open `TrioPC.xcodeproj`, configure your own signing team and App ID, and follow [the receiver setup](docs/push-setup.md). The ad-hoc ZIP can run monitoring and simulation but cannot register with APNs.
 
 ## Connect your server
 
@@ -40,7 +44,7 @@ See [the control design](docs/control-design.md) for the remaining work. The fir
 
 ## Privacy
 
-Connection settings stay on the Mac. This app has no analytics or telemetry. It sends read requests only to the Nightscout server configured locally. Repository examples and simulated readings are synthetic. Never attach personal health records, real server addresses, API secrets, access tokens or APNs credentials to an issue or pull request.
+Connection settings stay on the Mac. This app has no analytics or telemetry. Monitoring sends read requests only to the Nightscout server configured locally. Opt-in notification registration contacts Apple; device tokens and received reply messages stay in memory and are not logged. The Copy device token action places the token on the system clipboard. Repository examples and simulated readings are synthetic. Never attach personal health records, real server addresses, API secrets, access tokens or APNs credentials to an issue or pull request.
 
 ## License
 

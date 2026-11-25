@@ -242,6 +242,8 @@ struct CommandLab: View {
             if let error = model.commandError { Text(error).foregroundStyle(DeskTheme.warning) }
             Divider()
             Label("Live control is not available in this build.", systemImage: "lock.shield").font(DeskTheme.label).foregroundStyle(DeskTheme.muted)
+            Divider()
+            PushDiagnostics()
         }.padding(24).frame(maxWidth: .infinity, alignment: .leading).deskSurface()
     }
     @ViewBuilder private func simulationButtons(_ command: SimulatedCommand) -> some View {

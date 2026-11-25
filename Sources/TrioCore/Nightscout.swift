@@ -59,15 +59,18 @@ private final class NoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
 }
 
 public struct NightscoutClient: Sendable {
+    public typealias Transport = @Sendable (URLRequest) async throws -> (Data, URLResponse)
     let baseURL: URL
     let secret: String
-    public init(address: String, secret: String) throws {
+    private let transport: Transport?
+    public init(address: String, secret: String, transport: Transport? = nil) throws {
         guard let parts = URLComponents(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
-              parts.scheme == "https", parts.host != nil,
+              parts.scheme == "https", let host = parts.host, !host.isEmpty,
               parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
               let url = parts.url else { throw ConnectionError.invalidURL }
         baseURL = url
         self.secret = secret
+        self.transport = transport
     }
 
     public func request(path: String, count: Int) -> URLRequest {
@@ -86,13 +89,14 @@ public struct NightscoutClient: Sendable {
     public func fetch() async throws -> Snapshot {
         let session = URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
-        async let readings: [Glucose] = load(request(path: "api/v1/entries/sgv.json", count: 288), session: session)
-        async let treatments: [Treatment] = load(request(path: "api/v1/treatments.json", count: 30), session: session)
+        let send: Transport = transport ?? { try await session.data(for: $0) }
+        async let readings: [Glucose] = load(request(path: "api/v1/entries/sgv.json", count: 288), send: send)
+        async let treatments: [Treatment] = load(request(path: "api/v1/treatments.json", count: 30), send: send)
         return try await Snapshot(glucose: readings.sorted { $0.date < $1.date }, treatments: treatments)
     }
 
-    private func load<T: Decodable & Sendable>(_ request: URLRequest, session: URLSession) async throws -> T {
-        let (data, response) = try await session.data(for: request)
+    private func load<T: Decodable & Sendable>(_ request: URLRequest, send: Transport) async throws -> T {
+        let (data, response) = try await send(request)
         guard let http = response as? HTTPURLResponse else { throw ConnectionError.malformedData }
         switch http.statusCode {
         case 200: break

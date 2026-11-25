@@ -1,0 +1,50 @@
+// !$*UTF8*$!
+{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
+631B34F6B705DFA3FC221BA3 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TrioPC/AppModel.swift"; sourceTree = "<group>"; };
+EE1B3290114A7C698E3B2EC3 = { isa = PBXBuildFile; fileRef = 631B34F6B705DFA3FC221BA3; };
+95551175354E0643998CFC2B = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TrioPC/Dashboard.swift"; sourceTree = "<group>"; };
+EC019CB57B001182E2D6B1A7 = { isa = PBXBuildFile; fileRef = 95551175354E0643998CFC2B; };
+2C923DCB1D628825A3A9E67F = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TrioPC/Keychain.swift"; sourceTree = "<group>"; };
+50316D630B0D821EBA83566C = { isa = PBXBuildFile; fileRef = 2C923DCB1D628825A3A9E67F; };
+630CC9E2CD7CD1403C142816 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TrioPC/PushReceiver.swift"; sourceTree = "<group>"; };
+52275E66C993EA6BC13290BA = { isa = PBXBuildFile; fileRef = 630CC9E2CD7CD1403C142816; };
+B36DF8EA4168D75E498D4D1F = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TrioPC/Theme.swift"; sourceTree = "<group>"; };
+B4ACE7A6129AA0DB57DA64A8 = { isa = PBXBuildFile; fileRef = B36DF8EA4168D75E498D4D1F; };
+EA50289576D6D2D2B64893C1 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TrioPC/TrioPCApp.swift"; sourceTree = "<group>"; };
+8D5BBC66EC7E0D2392207DF0 = { isa = PBXBuildFile; fileRef = EA50289576D6D2D2B64893C1; };
+A8792157CB4F27FB949C035F = { isa = PBXFileReference; explicitFileType = wrapper.application; path = TrioPC.app; sourceTree = BUILT_PRODUCTS_DIR; };
+0A3E27B8CA818264D75C8D81 = { isa = PBXGroup; children = (A8792157CB4F27FB949C035F,); name = Products; sourceTree = "<group>"; };
+AD936FCBED631FA67E05C3EA = { isa = PBXGroup; children = (631B34F6B705DFA3FC221BA3,95551175354E0643998CFC2B,2C923DCB1D628825A3A9E67F,630CC9E2CD7CD1403C142816,B36DF8EA4168D75E498D4D1F,EA50289576D6D2D2B64893C1,0A3E27B8CA818264D75C8D81,); sourceTree = "<group>"; };
+BC4A71180870F7945155FBB0 = { isa = XCLocalSwiftPackageReference; relativePath = .; };
+0D45F5FD462B8C70BFFB1002 = { isa = XCSwiftPackageProductDependency; package = BC4A71180870F7945155FBB0; productName = TrioCore; };
+5B2D2E1CD1EA09990CD4EACE = { isa = PBXBuildFile; productRef = 0D45F5FD462B8C70BFFB1002; };
+E2AA269EB967A8853A258BFA = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (5B2D2E1CD1EA09990CD4EACE,); runOnlyForDeploymentPostprocessing = 0; };
+878A52FC5FF6A57D50B7B870 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (EE1B3290114A7C698E3B2EC3,EC019CB57B001182E2D6B1A7,50316D630B0D821EBA83566C,52275E66C993EA6BC13290BA,B4ACE7A6129AA0DB57DA64A8,8D5BBC66EC7E0D2392207DF0,); runOnlyForDeploymentPostprocessing = 0; };
+41D311A605520FC7B8B9A980 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+1F14D62AEF4518CE7AC9123C = { isa = XCBuildConfiguration; buildSettings = { 
+APS_ENVIRONMENT = development; CODE_SIGN_ENTITLEMENTS = Resources/TrioPC.entitlements;
+CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = ""; ENABLE_HARDENED_RUNTIME = YES;
+GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Resources/Info.plist;
+PRODUCT_BUNDLE_IDENTIFIER = com.fishistick.TrioPC; PRODUCT_NAME = "$(TARGET_NAME)";
+MACOSX_DEPLOYMENT_TARGET = 14.0; SDKROOT = macosx; SWIFT_VERSION = 6.0;
+SWIFT_STRICT_CONCURRENCY = complete; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+ONLY_ACTIVE_ARCH = YES;
+SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+ }; name = Debug; };
+5DF0EAF287A59303D4EFEAF3 = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; }; name = Debug; };
+57921FA43AD736EA8673ED95 = { isa = XCBuildConfiguration; buildSettings = { 
+APS_ENVIRONMENT = production; CODE_SIGN_ENTITLEMENTS = Resources/TrioPC.entitlements;
+CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = ""; ENABLE_HARDENED_RUNTIME = YES;
+GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Resources/Info.plist;
+PRODUCT_BUNDLE_IDENTIFIER = com.fishistick.TrioPC; PRODUCT_NAME = "$(TARGET_NAME)";
+MACOSX_DEPLOYMENT_TARGET = 14.0; SDKROOT = macosx; SWIFT_VERSION = 6.0;
+SWIFT_STRICT_CONCURRENCY = complete; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+ONLY_ACTIVE_ARCH = NO;
+SWIFT_OPTIMIZATION_LEVEL = "-O";
+ }; name = Release; };
+C62D9534737287C44FD6EF43 = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; }; name = Release; };
+175AB01246347EE3CB3AD67C = { isa = XCConfigurationList; buildConfigurations = (1F14D62AEF4518CE7AC9123C,57921FA43AD736EA8673ED95,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+B4E10CAA9C5E22150B71559C = { isa = XCConfigurationList; buildConfigurations = (5DF0EAF287A59303D4EFEAF3,C62D9534737287C44FD6EF43,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+34A04005BCAF206EEC990BD9 = { isa = PBXNativeTarget; buildConfigurationList = 175AB01246347EE3CB3AD67C; buildPhases = (878A52FC5FF6A57D50B7B870,E2AA269EB967A8853A258BFA,41D311A605520FC7B8B9A980,); buildRules = (); dependencies = (); name = TrioPC; packageProductDependencies = (0D45F5FD462B8C70BFFB1002,); productName = TrioPC; productReference = A8792157CB4F27FB949C035F; productType = "com.apple.product-type.application"; };
+244210E48437B6556980A702 = { isa = PBXProject; attributes = { LastUpgradeCheck = 1600; TargetAttributes = { 34A04005BCAF206EEC990BD9 = { CreatedOnToolsVersion = 16.0; SystemCapabilities = { com.apple.Push = { enabled = 1; }; }; }; }; }; buildConfigurationList = B4E10CAA9C5E22150B71559C; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en,Base,); mainGroup = AD936FCBED631FA67E05C3EA; packageReferences = (BC4A71180870F7945155FBB0,); productRefGroup = 0A3E27B8CA818264D75C8D81; projectDirPath = ""; projectRoot = ""; targets = (34A04005BCAF206EEC990BD9,); };
+}; rootObject = 244210E48437B6556980A702; }

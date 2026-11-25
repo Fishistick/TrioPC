@@ -26,6 +26,6 @@ Before enabling delivery, test against a mock driver: duplicate/reordered pushes
 ## Next increments
 
 - Verify read-only Nightscout compatibility against test servers; add device-status IOB/COB parsing with synthetic fixtures.
-- Add an Xcode app target with push entitlements and validate a non-dosing APNs round trip.
+- The Xcode app target and advisory legacy-reply receiver are implemented. Validate registration and a non-dosing APNs round trip with personal provisioning; see `push-setup.md`.
 - Design and review the persistent command protocol and separate iPhone patches.
 - Implement pump-result reconciliation and recovery tests before live bolus or cancellation.

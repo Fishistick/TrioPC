@@ -52,6 +52,7 @@ final class AppModel: ObservableObject {
             UserDefaults.standard.set(url.absoluteString, forKey: "nightscoutAddress")
             UserDefaults.standard.set(mmol, forKey: "mmol")
             generation += 1
+            refreshing = false
             activeClient = client
             demo = false; readings = []; treatments = []; lastSync = nil
             await refresh()
@@ -103,7 +104,6 @@ final class AppModel: ObservableObject {
     }
 }
 
-// URL is validated before the client is constructed.
 enum ConnectionError: LocalizedError {
     case invalidURL
     var errorDescription: String? { "Enter an HTTPS Nightscout address without credentials, query parameters or a fragment." }

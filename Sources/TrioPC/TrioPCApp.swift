@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct TrioPCApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model = AppModel()
     var body: some Scene {
         WindowGroup {

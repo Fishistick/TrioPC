@@ -9,7 +9,9 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - run: python3 scripts/generate-xcode-project.py && git diff --exit-code -- TrioPC.xcodeproj
       - run: swift test
+      - run: xcodebuild -project TrioPC.xcodeproj -scheme TrioPC -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/TrioPC-Xcode CODE_SIGNING_ALLOWED=NO build
       - run: bash scripts/build-app.sh
       - uses: actions/upload-artifact@v4
         with:

@@ -1,6 +1,6 @@
 # Contributing to TrioPC
 
-TrioPC is an early native macOS companion. Monitoring, simulation and an advisory APNs receiver are implemented; live bolusing and remote cancellation are not. APNs registration requires personal signing/provisioning and has not been tested end to end with Trio. Contributions must preserve that distinction in code, UI and documentation.
+TrioPC is an early native macOS companion. Monitoring, simulation, an advisory APNs receiver and a synthetic Mac-to-Mac APNs self-test are implemented; live bolusing and remote cancellation are not. APNs requires personal signing/provisioning. The outgoing self-test is separate from a round trip with Trio. Contributions must preserve that distinction in code, UI and documentation.
 
 ## Start here
 

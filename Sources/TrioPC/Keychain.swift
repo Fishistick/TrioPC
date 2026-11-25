@@ -3,9 +3,9 @@ import Security
 
 enum Keychain {
     private static let service = "com.fishistick.TrioPC.nightscout"
-    static func read() throws -> String {
+    static func read(service: String = service, account: String = "api-secret") throws -> String {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: "api-secret",
+            kSecAttrService as String: service, kSecAttrAccount as String: account,
             kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -14,9 +14,9 @@ enum Keychain {
         else { throw KeychainError(status: status) }
         return text
     }
-    static func save(_ value: String) throws {
+    static func save(_ value: String, service: String = service, account: String = "api-secret") throws {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: "api-secret"]
+            kSecAttrService as String: service, kSecAttrAccount as String: account]
         if value.isEmpty {
             let status = SecItemDelete(query as CFDictionary)
             guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }

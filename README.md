@@ -13,6 +13,7 @@ A native SwiftUI Mac companion for Trio and Nightscout. macOS 14 or later; no El
 - Clearly labelled sample data and an in-memory command simulator for lost replies, partial delivery and completion.
 
 - Opt-in APNs registration and an advisory legacy-reply inspector in Command lab, using a separately provisioned Xcode app target.
+- An outgoing APNs diagnostic that sends a fixed synthetic notification back to this Mac, with credentials in Keychain and a matching test ID to confirm receipt.
 
 **Live bolus commands and remote cancellation are not implemented.** The simulator cannot send insulin commands. The APNs receiver does not correlate commands or verify insulin delivery. It is not a validated dosing system. Nightscout treatment history is not command confirmation.
 
@@ -28,7 +29,7 @@ open dist/TrioPC.app
 
 The script produces a locally ad-hoc signed app and `dist/TrioPC-macOS.zip`. Keychain may request permission; rebuilding can change the app's signing identity. This is not a notarized distribution build. GitHub Actions also builds and tests the app and uploads the zipped app artifact.
 
-For real APNs registration, open `TrioPC.xcodeproj`, configure your own signing team and App ID, and follow [the receiver setup](docs/push-setup.md). The ad-hoc ZIP can run monitoring and simulation but cannot register with APNs.
+For APNs registration and the outgoing self-test, open `TrioPC.xcodeproj`, configure your own signing team and App ID, and follow [the APNs setup](docs/push-setup.md). The ad-hoc ZIP can run monitoring and simulation but cannot register with APNs. If you already configured signing locally, preserve those local changes when updating the app sources.
 
 ## Connect your server
 
@@ -44,7 +45,9 @@ See [the control design](docs/control-design.md) for the remaining work. The fir
 
 ## Privacy
 
-Connection settings stay on the Mac. This app has no analytics or telemetry. Monitoring sends read requests only to the Nightscout server configured locally. Opt-in notification registration contacts Apple; device tokens and received reply messages stay in memory and are not logged. The Copy device token action places the token on the system clipboard. Repository examples and simulated readings are synthetic. Never attach personal health records, real server addresses, API secrets, access tokens or APNs credentials to an issue or pull request.
+Connection settings stay on the Mac. This app has no analytics or telemetry. Monitoring sends read requests only to the Nightscout server configured locally. Opt-in notification registration and the self-test contact Apple; device tokens and received reply messages stay in memory and are not logged. APNs credentials are stored in a separate Keychain item; the private key never leaves the Mac, while a signed provider token is sent to Apple over TLS. The Copy device token action places the token on the system clipboard. Repository examples and simulated readings are synthetic. Never attach personal health records, real server addresses, API secrets, access tokens or APNs credentials to an issue or pull request.
+
+See [the roadmap](docs/roadmap.md) for planned work, including a Trio-style chart with active carbohydrates (COB) and active insulin (IOB).
 
 ## License
 

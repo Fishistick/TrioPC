@@ -5,6 +5,13 @@ dist/
 *.xcuserstate
 xcuserdata/
 .env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.log
 *.p8
 *.mobileprovision
 *.provisionprofile

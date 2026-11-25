@@ -1,6 +1,8 @@
 # TrioPC
 
-A private, native SwiftUI Mac companion for Trio. macOS 14 or later; no Electron, third-party Swift dependencies, or extra server.
+A native SwiftUI Mac companion for Trio and Nightscout. macOS 14 or later; no Electron, third-party Swift dependencies, or extra server.
+
+**Contributors welcome.** This is an early prototype with working monitoring code and a command simulator. Help is wanted with SwiftUI accessibility, Nightscout compatibility, synthetic test fixtures and the reliable-control protocol. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and [the control design](docs/control-design.md).
 
 ## First build: 0.1.0
 
@@ -32,6 +34,14 @@ The app starts with sample data every launch until you connect. It saves your se
 
 ## Development boundaries
 
-All project changes belong in `Fishistick/TrioPC`. Do not modify `Fishistick/Trio`. Any future iPhone changes must be supplied as patches or developed in a separate, explicitly authorized repository.
+Keep development in this repository. This project is independent of the upstream Trio application; it does not modify any existing Trio installation. Proposed iPhone changes belong in separately reviewed patches or a dedicated development fork.
 
 See [the control design](docs/control-design.md) for the remaining work. The first app deliberately implements monitoring and simulation before adding a delivery transport.
+
+## Privacy
+
+Connection settings stay on the Mac. This app has no analytics or telemetry. It sends read requests only to the Nightscout server configured locally. Repository examples and simulated readings are synthetic. Never attach personal health records, real server addresses, API secrets, access tokens or APNs credentials to an issue or pull request.
+
+## License
+
+Original TrioPC code is available under the [MIT license](LICENSE). Trio and other referenced projects retain their own licenses. No upstream Trio source is bundled here.

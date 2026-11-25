@@ -1,4 +1,4 @@
-# Private Mac control design
+# Mac remote-control design
 
 Baseline investigated: Trio v1.0.2 (`0b29cd53415e7f0e668677749cad8daf81c68c2f`) with its pinned OmnipodKit (`043b91dbf1958d26c55d927a6a8d651bc91f208d`), for Omnipod 5.
 
@@ -25,7 +25,7 @@ Before enabling delivery, test against a mock driver: duplicate/reordered pushes
 
 ## Next increments
 
-- Verify live read-only Nightscout against the user's server; add device-status IOB/COB parsing with fixtures.
+- Verify read-only Nightscout compatibility against test servers; add device-status IOB/COB parsing with synthetic fixtures.
 - Add an Xcode app target with push entitlements and validate a non-dosing APNs round trip.
 - Design and review the persistent command protocol and separate iPhone patches.
 - Implement pump-result reconciliation and recovery tests before live bolus or cancellation.

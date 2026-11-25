@@ -55,6 +55,19 @@ final class PushReceiver: ObservableObject {
 
     func receiveTest(_ value: LoopbackReceipt) { testReceipt = value }
 
+    func deliveredTest(id: UUID) async -> LoopbackReceipt? {
+        // Alert pushes can reach Notification Center while the app is in the background,
+        // without a foreground delegate callback. Inspect only this app's notifications.
+        let notifications = await UNUserNotificationCenter.current().deliveredNotifications()
+        for notification in notifications {
+            if let receipt = Self.parseTest(notification.request.content.userInfo), receipt.id == id {
+                receiveTest(receipt)
+                return receipt
+            }
+        }
+        return nil
+    }
+
     nonisolated static func parseTest(_ payload: [AnyHashable: Any]) -> LoopbackReceipt? {
         guard JSONSerialization.isValidJSONObject(payload),
               let data = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
@@ -151,8 +164,12 @@ struct PushDiagnostics: View {
 @MainActor
 final class APNsSenderModel: ObservableObject {
     static let shared = APNsSenderModel()
-    @Published var teamID = "" { didSet { saved = false } }
-    @Published var keyID = "" { didSet { saved = false } }
+    @Published var teamID = "" {
+        didSet { if teamID != oldValue { saved = false; message = "Credential fields changed. Save credentials before sending." } }
+    }
+    @Published var keyID = "" {
+        didSet { if keyID != oldValue { saved = false; message = "Credential fields changed. Save credentials before sending." } }
+    }
     @Published private(set) var hasKey = false
     @Published private(set) var saved = false
     @Published private(set) var busy = false
@@ -217,6 +234,12 @@ final class APNsSenderModel: ObservableObject {
         message = "Round trip confirmed: this app received its matching synthetic test notification."
     }
 
+    func checkDelivery() async {
+        guard let test else { return }
+        if let receipt = await PushReceiver.shared.deliveredTest(id: test.id) { receive(receipt) }
+        else { message = "No matching test is in this app’s delivered notifications yet. It may be delayed or already dismissed." }
+    }
+
     func sendToThisMac() async {
         let push = PushReceiver.shared
         guard saved, !busy, test?.waiting != true,
@@ -235,7 +258,14 @@ final class APNsSenderModel: ObservableObject {
             test = pending; message = "Sending synthetic notification to this Mac…"
             timeout?.cancel()
             timeout = Task { [weak self] in
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                for _ in 0..<15 {
+                    do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                    guard let self, let current = self.test, current.id == pending.id,
+                          current.state != .received, current.state != .rejected else { return }
+                    if let receipt = await PushReceiver.shared.deliveredTest(id: pending.id) {
+                        self.receive(receipt); return
+                    }
+                }
                 guard let self, var current = self.test, current.id == pending.id, current.waiting else { return }
                 current.unknown(); self.test = current
                 self.message = "No matching return within 30 seconds. No automatic retry was sent. A late return can still confirm this test."
@@ -287,6 +317,7 @@ struct APNsSenderPanel: View {
             Text(model.message).font(DeskTheme.label).textSelection(.enabled)
             if let test = model.test {
                 Text("Test ID: \(test.id.uuidString)").font(DeskTheme.code).foregroundStyle(DeskTheme.muted)
+                Button("Check received test") { Task { await model.checkDelivery() } }.disabled(model.busy)
             }
         }.onReceive(push.$testReceipt) { model.receive($0) }
     }

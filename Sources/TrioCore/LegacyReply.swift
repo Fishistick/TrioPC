@@ -34,4 +34,9 @@ public struct LegacyReply: Codable, Sendable, Equatable {
             ? "Trio reported command processing. Delivered insulin is not verified."
             : "Trio reported a command error. Zero delivery is not verified."
     }
+
+    /// Advisory display ordering only; never correlate a reply with a bolus attempt.
+    public static func newest(in replies: [Self]) -> Self? {
+        replies.max { $0.timestamp < $1.timestamp }
+    }
 }

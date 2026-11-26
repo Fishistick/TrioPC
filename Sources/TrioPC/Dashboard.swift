@@ -376,14 +376,23 @@ private struct StockBolusPanel: View {
                     }.disabled(!checkedPhone || control.busy)
                 } else { Text("Phone review recorded; delivery is not independently verified by TrioPC.").font(DeskTheme.small).foregroundStyle(DeskTheme.muted) }
             }
+            Divider()
+            Text("Replies from Trio").font(DeskTheme.section)
+            Text("Checked automatically when you return to TrioPC or wake your Mac.")
+                .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+            Button("Check for existing replies") { Task { await push.recoverDeliveredReplies() } }
+            Text("Checks notifications already on this Mac. Sends nothing to your phone.")
+                .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+            Text(push.replyRecovery).font(DeskTheme.label)
             if let reply = push.reply {
-                Divider()
-                Text("Uncorrelated Trio reply").font(DeskTheme.section)
                 Text(reply.aps.alert.body).textSelection(.enabled)
-                Text(reply.interpretation).font(DeskTheme.small).foregroundStyle(DeskTheme.warning)
+                Text("Reply sent by Trio: \(Date(timeIntervalSince1970: reply.timestamp).formatted())")
+                    .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+                Text("This reply may relate to another request. Completed insulin delivery is not verified.")
+                    .font(DeskTheme.small).foregroundStyle(DeskTheme.warning)
             }
         }.padding(24).frame(maxWidth: .infinity, alignment: .leading).deskSurface()
-            .task { await control.enter() }
+            .task { await control.enter(); await push.recoverDeliveredReplies() }
             .onChange(of: control.latestAttempt?.id) { _, _ in checkedPhone = false }
             .sheet(item: $review, onDismiss: { control.cancelReview() }) { draft in
                 VStack(alignment: .leading, spacing: 18) {

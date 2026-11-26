@@ -16,6 +16,8 @@ final class PushReceiver: ObservableObject {
     @Published private(set) var receivedAt: Date?
     @Published private(set) var testReceipt: LoopbackReceipt?
     @Published private(set) var conditions = "Checking notification settings…"
+    @Published private(set) var replyRecovery = "Existing replies on this Mac have not been checked yet."
+    private var checkingReplies = false
     private var authorizationGranted = false
 
     var signedTeamID: String? {
@@ -62,6 +64,7 @@ final class PushReceiver: ObservableObject {
 
     func recoverAfterWake() async {
         await refreshConditions()
+        await recoverDeliveredReplies()
         // Refresh an already-authorized registration; never prompt or send another push.
         if authorizationGranted, environment != nil {
             if deviceToken == nil { state = "Registering with Apple…" }
@@ -83,7 +86,25 @@ final class PushReceiver: ObservableObject {
     func receive(_ value: LegacyReply) {
         // The same notification can arrive through both AppKit and UserNotifications.
         guard reply != value else { return }
+        // A Notification Center scan must not replace a newer live reply with an older one.
+        if let reply, reply.timestamp > value.timestamp { return }
         reply = value; receivedAt = Date()
+    }
+
+    func recoverDeliveredReplies() async {
+        guard !checkingReplies else { return }
+        checkingReplies = true
+        defer { checkingReplies = false }
+        let replies: [LegacyReply] = await withCheckedContinuation { continuation in
+            UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
+                // Inspect only this app's existing notifications. Never remove or reschedule them.
+                continuation.resume(returning: notifications.compactMap { Self.parse($0.request.content.userInfo) })
+            }
+        }
+        if let newest = LegacyReply.newest(in: replies) { receive(newest) }
+        replyRecovery = replies.isEmpty
+            ? "No saved reply was found on this Mac. This does not tell us whether insulin was delivered."
+            : "Found a saved reply on this Mac. The latest known reply is shown below; it may relate to another request."
     }
 
     func clearReply() { reply = nil; receivedAt = nil }
@@ -193,6 +214,8 @@ struct PushDiagnostics: View {
             Text(push.state).font(DeskTheme.body)
             Text("Environment: \(push.environment ?? "Not provisioned")").font(DeskTheme.label).foregroundStyle(DeskTheme.muted)
             Text(push.conditions).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+            Button("Check Notification Center for Trio replies") { Task { await push.recoverDeliveredReplies() } }
+            Text(push.replyRecovery).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             Text("macOS can defer pushes on battery even when Low Power Mode is off. Registration is not a delivery guarantee.")
                 .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             HStack {

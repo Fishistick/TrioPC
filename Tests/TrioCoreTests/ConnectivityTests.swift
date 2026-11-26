@@ -50,6 +50,17 @@ final class ConnectivityTests: XCTestCase {
         XCTAssertTrue(try LegacyReply.parse(data).interpretation.contains("Zero delivery is not verified"))
     }
 
+    func testRecoveredRepliesSelectNewestWithoutTreatingSuccessAsCompletion() throws {
+        let fixture = #"{"command_status":"success","command_type":"bolus","timestamp":1700000000,"aps":{"alert":{"title":"Command Successful","body":"Bolus started"}}}"#
+        let older = try LegacyReply.parse(Data(fixture.utf8))
+        let newer = try LegacyReply.parse(Data(fixture.replacingOccurrences(of: "1700000000", with: "1700000010").replacingOccurrences(of: "success", with: "failed").utf8))
+        XCTAssertNil(LegacyReply.newest(in: []))
+        XCTAssertEqual(LegacyReply.newest(in: [newer, older, newer]), newer)
+        XCTAssertEqual(LegacyReply.newest(in: [older, newer]), newer)
+        XCTAssertTrue(older.interpretation.contains("not verified"))
+        XCTAssertTrue(newer.interpretation.contains("Zero delivery is not verified"))
+    }
+
     func testLegacyReplyRejectsMalformedAndOversizedPayloads() {
         for data in [Data("{}".utf8), Data(repeating: 32, count: 4097),
                      Data(#"{"command_status":"complete","command_type":"bolus","timestamp":1,"aps":{"alert":{"title":"x","body":"x"}}}"#.utf8)] {

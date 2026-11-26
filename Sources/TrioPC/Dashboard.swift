@@ -282,6 +282,7 @@ private struct StockBolusPanel: View {
                 .font(DeskTheme.label).foregroundStyle(DeskTheme.warning)
             DisclosureGroup("Connection and control settings", isExpanded: $showSetup) {
                 VStack(alignment: .leading, spacing: 14) {
+                    Text("1. Find your phone’s Trio app").font(DeskTheme.section)
                     Button("Read Trio profile from Nightscout") { Task { await control.discover(app: app) } }.disabled(app.demo || control.busy)
                     if let profile = control.profile {
                         Text("Trio app: \(profile.bundleID)").font(DeskTheme.code).textSelection(.enabled)
@@ -289,21 +290,46 @@ private struct StockBolusPanel: View {
                         Text("Device fingerprint: \(profile.fingerprint.suffix(12))").font(DeskTheme.code).foregroundStyle(DeskTheme.muted)
                         Text("Profile published: \(profile.publishedAt.formatted())").font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
                     }
-                    SecureField("Existing Trio remote-control shared secret", text: $control.sharedSecret).textFieldStyle(.roundedBorder)
+                    Divider()
+                    Text("2. Copy your existing Trio settings").font(DeskTheme.section)
+                    Text("Remote-control shared secret").font(DeskTheme.label)
+                    SecureField("Copy the secret from Trio on your phone", text: $control.sharedSecret).textFieldStyle(.roundedBorder)
                         .accessibilityLabel("Stock Trio shared secret")
-                    HStack {
-                        TextField("Trio’s maximum bolus (U)", text: $control.maximum).textFieldStyle(.roundedBorder)
-                        TextField("Trio’s bolus increment (U)", text: $control.increment).textFieldStyle(.roundedBorder)
+                    HStack(alignment: .top, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Maximum bolus (U)").font(DeskTheme.label)
+                            TextField("Copy from Trio", text: $control.maximum).textFieldStyle(.roundedBorder)
+                                .accessibilityLabel("Trio maximum bolus in units")
+                            Text("The largest single bolus allowed in your current Trio settings.")
+                                .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Bolus increment (U)").font(DeskTheme.label)
+                            TextField("Copy from Trio", text: $control.increment).textFieldStyle(.roundedBorder)
+                                .accessibilityLabel("Trio bolus increment in units")
+                            Text("The step size between allowed bolus amounts in Trio.")
+                                .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    Text("Copy both limits from your current Trio pump settings. Use decimal points; amounts are never rounded automatically.")
+                    Text("These are limits, not a dose to send. Copy both from your phone; TrioPC cannot read or verify them automatically. Use a decimal point.")
                         .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
-                    TextField("APNs Key ID for the Trio app’s team", text: $control.keyID).textFieldStyle(.roundedBorder)
+                    Divider()
+                    Text("3. Choose the Apple key used to reach your phone").font(DeskTheme.section)
+                    Text("If your saved Mac key also permits notifications to Trio under the same Apple developer team, choose Use saved Mac key. Otherwise enter the Key ID and import the matching .p8 file below. Matching teams alone does not prove the key has access to Trio.")
+                        .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
                     HStack {
-                        Button("Import Trio APNs .p8 key") { Task { await control.importProvider() } }
-                        Button("Use saved Mac key for Trio") { control.useMacProvider() }.disabled(control.profile == nil)
+                        Button("Use saved Mac key") { control.useMacProvider() }.disabled(control.profile == nil)
                     }
+                    Text("Apple APNs Key ID").font(DeskTheme.label)
+                    TextField("Key ID belonging to the .p8 file", text: $control.keyID).textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("APNs Key ID for Trio")
+                    Button("Import matching .p8 key file…") { Task { await control.importProvider() } }
                     Text(control.providerDescription).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
-                    Text("Replies require the Mac APNs key saved in Command lab. Stock Trio receives that return key only inside the encrypted command. A separate Trio signing key is supported when the teams differ.")
+                    Text("For replies: keep your Mac’s APNs key saved in Command lab. TrioPC includes that key inside the encrypted request so your phone can reply to this Mac.")
+                        .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+                    Divider()
+                    Text("4. Save, then verify below").font(DeskTheme.section)
+                    Text("Saving stores these connection settings in this Mac’s Keychain. It does not send a bolus. After saving, verify the app and limits, then enable control for this session.")
                         .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
                     HStack {
                         Button("Save control settings") { control.saveConfiguration() }.disabled(control.profile == nil)
@@ -319,6 +345,9 @@ private struct StockBolusPanel: View {
                 Text("A Nightscout glucose reading within 10 minutes is required by this prototype. Refresh before reviewing a bolus.")
                     .font(DeskTheme.label).foregroundStyle(DeskTheme.warning)
             }
+            Text("Dose to request (U)").font(DeskTheme.label)
+            Text("Enter a dose only when you intend to request it. Review opens a confirmation; sending requires Touch ID or your Mac password.")
+                .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             HStack {
                 TextField("Manually entered bolus (U)", text: $control.amount).textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 230).accessibilityLabel("Stock Trio bolus units")

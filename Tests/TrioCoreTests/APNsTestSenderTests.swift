@@ -156,6 +156,57 @@ final class APNsTestSenderTests: XCTestCase {
         XCTAssertNotEqual(requests[0].value(forHTTPHeaderField: "authorization"), requests[1].value(forHTTPHeaderField: "authorization"))
     }
 
+    func testRestartLeavesInFlightTestUnconfirmed() throws {
+        for accepted in [false, true] {
+            var test = LoopbackTest()
+            if accepted { test.accepted() }
+            let checkpoint = try LoopbackCheckpoint.parse(JSONEncoder().encode(LoopbackCheckpoint(test: test, deliveryLogID: "example-log-id")))
+            let restored = checkpoint.recoveredTest
+            XCTAssertEqual(restored.id, test.id)
+            XCTAssertEqual(restored.createdAt, test.createdAt)
+            XCTAssertEqual(restored.state, .unconfirmed)
+            XCTAssertFalse(restored.waiting)
+            XCTAssertEqual(checkpoint.deliveryLogID, "example-log-id")
+        }
+    }
+
+    func testRestartPreservesObservedTerminalStates() throws {
+        var received = LoopbackTest(); received.receive(id: received.id)
+        var rejected = LoopbackTest(); rejected.rejected()
+        for test in [received, rejected] {
+            let checkpoint = try LoopbackCheckpoint.parse(JSONEncoder().encode(LoopbackCheckpoint(test: test, deliveryLogID: nil)))
+            XCTAssertEqual(checkpoint.recoveredTest.state, test.state)
+        }
+    }
+
+    func testRecoveredTestStillRequiresMatchingReceipt() throws {
+        let test = LoopbackTest()
+        var restored = try LoopbackCheckpoint.parse(JSONEncoder().encode(LoopbackCheckpoint(test: test, deliveryLogID: nil))).recoveredTest
+        restored.receive(id: UUID())
+        XCTAssertEqual(restored.state, .unconfirmed)
+        restored.receive(id: test.id)
+        XCTAssertEqual(restored.state, .received)
+    }
+
+    func testCheckpointRejectsCorruptionFutureSchemaAndOversize() throws {
+        let data = try JSONEncoder().encode(LoopbackCheckpoint(test: LoopbackTest(), deliveryLogID: nil))
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object["schema"] = 2
+        XCTAssertThrowsError(try LoopbackCheckpoint.parse(JSONSerialization.data(withJSONObject: object)))
+        XCTAssertThrowsError(try LoopbackCheckpoint.parse(Data("corrupt".utf8)))
+        XCTAssertThrowsError(try LoopbackCheckpoint.parse(Data(repeating: 32, count: 4097)))
+    }
+
+    func testCheckpointContainsNoCredentialOrPayloadFields() throws {
+        let data = try JSONEncoder().encode(LoopbackCheckpoint(test: LoopbackTest(), deliveryLogID: "example-log-id"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(Set(object.keys), ["schema", "test", "deliveryLogID"])
+        let test = try XCTUnwrap(object["test"] as? [String: Any])
+        XCTAssertEqual(Set(test.keys), ["id", "createdAt", "state"])
+        let sanitized = LoopbackCheckpoint(test: LoopbackTest(), deliveryLogID: "unexpected header text")
+        XCTAssertNil(sanitized.deliveryLogID)
+    }
+
     private func decode(_ value: String) throws -> Data {
         var base64 = value.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)

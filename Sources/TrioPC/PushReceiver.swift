@@ -14,6 +14,7 @@ final class PushReceiver: ObservableObject {
     @Published private(set) var receivedAt: Date?
     @Published private(set) var testReceipt: LoopbackReceipt?
     @Published private(set) var conditions = "Checking notification settings…"
+    private var authorizationGranted = false
 
     var signedTeamID: String? {
         guard let task = SecTaskCreateFromSelf(nil) else { return nil }
@@ -40,7 +41,7 @@ final class PushReceiver: ObservableObject {
     }
 
     func refreshConditions() async {
-        let detail: String = await withCheckedContinuation { continuation in
+        let snapshot: (String, Bool) = await withCheckedContinuation { continuation in
             UNUserNotificationCenter.current().getNotificationSettings { settings in
                 let permission = switch settings.authorizationStatus {
                 case .authorized, .provisional, .ephemeral: "Allowed"
@@ -49,16 +50,19 @@ final class PushReceiver: ObservableObject {
                 @unknown default: "Unknown"
                 }
                 let alerts = settings.alertSetting == .enabled ? "on" : "off"
-                continuation.resume(returning: "Notifications: \(permission) · Alerts: \(alerts)")
+                let granted = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
+                continuation.resume(returning: ("Notifications: \(permission) · Alerts: \(alerts)", granted))
             }
         }
-        conditions = "\(detail) · Low Power Mode: \(ProcessInfo.processInfo.isLowPowerModeEnabled ? "on" : "off")"
+        authorizationGranted = snapshot.1
+        conditions = "\(snapshot.0) · Low Power Mode: \(ProcessInfo.processInfo.isLowPowerModeEnabled ? "on" : "off")"
     }
 
     func recoverAfterWake() async {
         await refreshConditions()
         // Refresh an already-authorized registration; never prompt or send another push.
-        if deviceToken != nil, environment != nil {
+        if authorizationGranted, environment != nil {
+            if deviceToken == nil { state = "Registering with Apple…" }
             NSApplication.shared.registerForRemoteNotifications()
         }
         if let pending = APNsSenderModel.shared.test,
@@ -130,6 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             name: NSWorkspace.didWakeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(recoverPush),
             name: .NSProcessInfoPowerStateDidChange, object: nil)
+        recoverPush()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) { recoverPush() }
@@ -198,7 +203,7 @@ struct PushDiagnostics: View {
                     }
                 }
             }
-            Text("Tokens stay in memory. Register again after launch. Never post tokens or push credentials publicly.")
+            Text("Tokens stay in memory and refresh automatically after launch when notifications are already allowed. Never post tokens or push credentials publicly.")
                 .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             if let reply = push.reply {
                 Divider()
@@ -230,13 +235,59 @@ final class APNsSenderModel: ObservableObject {
     @Published private(set) var saved = false
     @Published private(set) var busy = false
     @Published private(set) var message = "Import an APNs signing key to send a synthetic notification to this Mac."
-    @Published private(set) var test: LoopbackTest?
-    @Published private(set) var deliveryLogID: String?
+    @Published private(set) var test: LoopbackTest? { didSet { persistCheckpoint() } }
+    @Published private(set) var deliveryLogID: String? { didSet { persistCheckpoint() } }
+    @Published private(set) var checkpointMessage = "Only the latest synthetic test's ID, time, state and delivery-log ID are saved locally."
     private var pem = ""
     private let sender = APNsTestSender()
     private var timeout: Task<Void, Never>?
     private static let service = "com.fishistick.TrioPC.apns-test"
+    private static let checkpointKey = "apnsSyntheticTestCheckpoint.v1"
     private struct Stored: Codable { let teamID: String; let keyID: String; let pem: String }
+
+    var testStatus: String {
+        switch test?.state {
+        case .sending: "Sending"
+        case .awaitingReturn: "Accepted by Apple; awaiting receipt"
+        case .received: "Receipt confirmed"
+        case .unconfirmed: "Unconfirmed"
+        case .rejected: "Rejected by Apple"
+        case nil: "No test"
+        }
+    }
+
+    init() {
+        guard let data = UserDefaults.standard.data(forKey: Self.checkpointKey) else { return }
+        do {
+            let checkpoint = try LoopbackCheckpoint.parse(data)
+            test = checkpoint.recoveredTest
+            deliveryLogID = checkpoint.deliveryLogID
+            switch test?.state {
+            case .received: message = "Restored a previously confirmed synthetic test. No new notification was sent."
+            case .rejected: message = "Restored a previously rejected synthetic test. No new notification was sent."
+            default: message = "Restored an unconfirmed synthetic test. Checking for its receipt; no automatic resend was sent."
+            }
+            persistCheckpoint()
+        } catch {
+            checkpointMessage = "The saved synthetic test could not be restored. Clear saved test to remove it. No notification was sent."
+        }
+    }
+
+    private func persistCheckpoint() {
+        guard let test else { return }
+        let checkpoint = LoopbackCheckpoint(test: test, deliveryLogID: deliveryLogID)
+        if let data = try? JSONEncoder().encode(checkpoint) {
+            UserDefaults.standard.set(data, forKey: Self.checkpointKey)
+        }
+    }
+
+    func clearSavedTest() {
+        guard !busy else { return }
+        timeout?.cancel(); test = nil; deliveryLogID = nil
+        UserDefaults.standard.removeObject(forKey: Self.checkpointKey)
+        checkpointMessage = "Saved synthetic test cleared. Push credentials are unchanged."
+        message = "No synthetic test is being tracked."
+    }
 
     func importKey() async {
         let panel = NSOpenPanel()
@@ -293,6 +344,10 @@ final class APNsSenderModel: ObservableObject {
 
     func checkDelivery() async {
         guard let test else { return }
+        if test.state == .received {
+            message = "This synthetic test was already confirmed. No new notification was sent."
+            return
+        }
         if let receipt = await PushReceiver.shared.deliveredTest(id: test.id) { receive(receipt) }
         else { message = "No matching test is in this app’s delivered notifications yet. It may be delayed or already dismissed." }
     }
@@ -379,7 +434,9 @@ struct APNsSenderPanel: View {
                 .disabled(!model.saved || push.deviceToken == nil || model.busy || model.test?.waiting == true)
             Text(model.message).font(DeskTheme.label).textSelection(.enabled)
             if let test = model.test {
+                Text("Test status: \(model.testStatus)").font(DeskTheme.label)
                 Text("Test ID: \(test.id.uuidString)").font(DeskTheme.code).foregroundStyle(DeskTheme.muted)
+                Text("Started: \(test.createdAt.formatted())").font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
                 if let logID = model.deliveryLogID {
                     Text("Apple delivery log ID: \(logID)").font(DeskTheme.code).textSelection(.enabled)
                     Button("Copy Apple delivery log ID") {
@@ -389,6 +446,8 @@ struct APNsSenderPanel: View {
                 }
                 Button("Check received test") { Task { await model.checkDelivery() } }.disabled(model.busy)
             }
+            Text(model.checkpointMessage).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+            Button("Clear saved test") { model.clearSavedTest() }.disabled(model.busy)
         }
     }
     @ViewBuilder private var credentialActions: some View {

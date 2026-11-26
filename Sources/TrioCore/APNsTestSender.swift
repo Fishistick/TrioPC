@@ -76,8 +76,8 @@ public struct LoopbackReceipt: Decodable, Sendable {
     }
 }
 
-public struct LoopbackTest: Sendable {
-    public enum State: String, Sendable { case sending, awaitingReturn, received, unconfirmed, rejected }
+public struct LoopbackTest: Codable, Sendable {
+    public enum State: String, Codable, Sendable { case sending, awaitingReturn, received, unconfirmed, rejected }
     public let id: UUID
     public let createdAt: Date
     public private(set) var state: State = .sending
@@ -97,6 +97,44 @@ public struct LoopbackTest: Sendable {
             let aps = APS(); let triopc_test = true; let triopc_test_id: UUID; let timestamp: TimeInterval
         }
         return try JSONEncoder().encode(Payload(triopc_test_id: id, timestamp: createdAt.timeIntervalSince1970))
+    }
+}
+
+/// Local synthetic-test metadata only. Never use this unauthenticated checkpoint for dosing.
+public struct LoopbackCheckpoint: Codable, Sendable {
+    private let schema: Int
+    public let test: LoopbackTest
+    public let deliveryLogID: String?
+
+    public init(test: LoopbackTest, deliveryLogID: String?) {
+        schema = 1
+        self.test = test
+        self.deliveryLogID = Self.validLogID(deliveryLogID)
+    }
+
+    public static func parse(_ data: Data) throws -> Self {
+        guard data.count <= 4096 else { throw APNsTestError.invalidRecipient }
+        let checkpoint = try JSONDecoder().decode(Self.self, from: data)
+        let timestamp = checkpoint.test.createdAt.timeIntervalSince1970
+        guard checkpoint.schema == 1, timestamp.isFinite, timestamp > 0, timestamp <= 253402300799,
+              checkpoint.deliveryLogID == validLogID(checkpoint.deliveryLogID)
+        else { throw APNsTestError.invalidRecipient }
+        return checkpoint
+    }
+
+    public var recoveredTest: LoopbackTest {
+        var recovered = test
+        // A process exit cannot establish whether Apple accepted an in-flight request.
+        recovered.unknown()
+        return recovered
+    }
+
+    private static func validLogID(_ value: String?) -> String? {
+        value.flatMap { id in
+            guard !id.isEmpty, id.utf8.count <= 256,
+                  id.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95 }) else { return nil }
+            return id
+        }
     }
 }
 

@@ -26,7 +26,7 @@ Use Apple's Push Notifications Console for **the Mac app's own App ID and device
 
 This is a notification to the Mac; it does not issue a command to Trio. The inspector must show it as an uncorrelated legacy reply and must not change the simulator's state. The timestamp above is intentionally synthetic; the UI shows the supplied timestamp and does not treat it as fresh evidence. Foreground notifications and notification clicks are handled; do not assume an app that is quit or a sleeping Mac will process every push immediately.
 
-Tokens and the last reply are memory-only. Register again after launching, and use Clear reply to dismiss the retained message. Do not include real tokens, screenshots of real reply bodies, APNs private keys or provisioning profiles in a bug report.
+Tokens and the last legacy reply are memory-only. A signed app automatically requests a fresh token on launch when notification permission is already granted. On a first launch, use Register this Mac to request permission. Use Clear reply to dismiss the retained legacy message. Do not include real tokens, screenshots of real reply bodies, APNs private keys or provisioning profiles in a bug report.
 
 ## Why a reply does not confirm delivery
 
@@ -68,3 +68,12 @@ A confirmed round trip demonstrates one notification's delivery. It does not gua
 For reliable future command **status**, APNs should be a wake-up hint backed by a durable, authenticated event journal on the Trio side. The Mac must fetch missed events on reconnect, wake and launch and while a command is unresolved. This needs command UUIDs, monotonically increasing revisions, deduplication and pump reconciliation. The existing Nightscout server could potentially host the journal without an additional server, but Trio must explicitly write that protocol; Nightscout treatment history and current legacy replies are not substitutes. This has not been implemented, and the main Trio repository has not been changed.
 
 References: [Apple delivery and power restrictions](https://developer.apple.com/documentation/usernotifications/viewing-the-status-of-push-notifications-using-metrics-and-apns), [similar macOS battery deferral report and Apple support response](https://developer.apple.com/forums/thread/813492).
+
+
+## Recovery after quitting TrioPC
+
+The app saves one local synthetic-test checkpoint in its macOS preferences. It contains a schema version, random test UUID, creation time, test state and optional Apple delivery-log ID. It contains no private key, Team ID, Key ID, device token, notification body, Nightscout connection details or health data. Clear saved test removes this diagnostic checkpoint without changing credentials. The checkpoint is local diagnostic metadata, not an authenticated record of an insulin command.
+
+On relaunch, previously observed receipt/rejection states remain visible with the original start time. An interrupted send or wait restores as **unconfirmed**. It must never imply failure, receipt or a fresh send. TrioPC checks its delivered notifications for that exact UUID during launch, activation and wake, and handles incoming matching receipts even if Command lab is hidden. Loading credentials never resends the test. Notifications that were dismissed or never delivered may be unrecoverable from Notification Center; this checkpoint is not a server-backed response journal. macOS preference persistence supports normal restarts and is not a dosing-grade crash-consistency guarantee.
+
+Automatic registration only runs when notification permission is already granted and the running app is signed for APNs. It does not display a new permission prompt, load the signing key, send a notification, or persist the device token.

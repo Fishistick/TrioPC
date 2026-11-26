@@ -381,6 +381,8 @@ private struct StockBolusPanel: View {
             Text("Replies from Trio").font(DeskTheme.section)
             Text("Checked automatically when you return to TrioPC or wake your Mac.")
                 .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+            Text("Missing replies? Keep the Mac plugged in and awake, let a low battery recover, then use the reply test below. macOS may still delay delivery while charging. A passed test checks reception at that moment; future delivery is not guaranteed.")
+                .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             Button("Check for existing replies") { Task { await push.recoverDeliveredReplies() } }
             Text("Checks notifications already on this Mac. Sends nothing to your phone.")
                 .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)

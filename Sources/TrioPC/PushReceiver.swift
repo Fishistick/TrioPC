@@ -217,7 +217,7 @@ struct PushDiagnostics: View {
             Text(push.conditions).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             Button("Check Notification Center for Trio replies") { Task { await push.recoverDeliveredReplies() } }
             Text(push.replyRecovery).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
-            Text("macOS can defer pushes on battery even when Low Power Mode is off. Registration is not a delivery guarantee.")
+            Text("macOS can delay replies for power reasons, including while charging and with Low Power Mode off. Registration alone does not confirm that replies can arrive.")
                 .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             HStack {
                 Button("Refresh notification status") { Task { await push.refreshConditions() } }

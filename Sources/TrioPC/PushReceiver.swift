@@ -134,9 +134,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidBecomeActive(_ notification: Notification) { recoverPush() }
 
-    @objc private func recoverPush() {
-        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
-        Task { await PushReceiver.shared.recoverAfterWake() }
+    @objc nonisolated private func recoverPush() {
+        // System power notifications may be posted off the main thread.
+        Task { @MainActor in
+            guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+            await PushReceiver.shared.recoverAfterWake()
+        }
     }
 
     func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {

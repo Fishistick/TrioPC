@@ -69,7 +69,7 @@ A legacy “success” may mean only that a bolus started; a failure does not es
 
 ## Validation and deployment status
 
-Automated checks exercise independent publisher/Mac encryption interoperability, encrypted outbox restart/acknowledgement, server binding, wrong secrets, altered ciphertext/UUIDs, duplicate/reordered/conflicting replies, cache reload, query limits and failed HTTP reads. The integration patch is checked against the pinned upstream source and parsed as Swift; the isolated publisher is also type-checked with the installed iOS SDK. These are not a full Trio iOS app build or device validation.
+Automated checks exercise independent publisher/Mac encryption interoperability, encrypted outbox restart/acknowledgement, server binding, wrong secrets, altered ciphertext/UUIDs, duplicate/reordered/conflicting replies, cache reload, query limits and failed HTTP reads. The integration patch applies to the pinned upstream source and passed a full unsigned iOS Simulator build of Trio in an isolated checkout with its pinned dependencies. The isolated publisher is also type-checked with the iOS SDK in GitHub Actions. The simulator build used `CI=true` to skip formatting and Crashlytics upload phases, with `CODE_SIGNING_ALLOWED=NO`. No signed device build, phone installation or on-device validation has been completed.
 
 No phone installation, Nightscout configuration change, or live history upload is performed by building TrioPC. A real end-to-end test requires a separately built patched phone app, enabling its history toggle, pairing the Mac, then using the phone's **Send history connection test** button. Do not issue a bolus to test this transport. Check that the synthetic row survives a Mac restart and a refresh without duplicating it.
 

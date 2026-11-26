@@ -8,7 +8,7 @@ Keep your main Trio checkout untouched. Prepare and review a separate upstream c
 
 The `publisher/TrioPCResponseOutbox.swift` source is appended to the existing response-manager file by the patch, so no Xcode source membership change is needed. It is also a SwiftPM test target here, allowing the independently implemented Mac reader to verify interoperability. `scripts/prepare-trio-history-patch.py /path/to/pinned/upstream` regenerates the patch by reading that source directory; it does not modify the supplied directory.
 
-The patch has syntax and isolated-publisher checks, not a full Trio iOS build or on-device validation. Review and complete those checks in the separate checkout before phone deployment. No patched Trio app is installed automatically and your main repository is never written by these scripts.
+The patch has passed syntax checks, publisher/Mac interoperability tests, iOS publisher type-checking, and a full unsigned iOS Simulator build of Trio with the pinned dependencies in an isolated checkout. A signed device build and on-device validation remain necessary before use. No patched Trio app is installed automatically and your main repository is never written by these scripts.
 
 After a separately validated phone build is installed, use Remote Control → TrioPC response history, enable Save encrypted responses to Nightscout, and ensure the existing Nightscout upload connection uses HTTPS. Pair the same shared secret in TrioPC's Response history panel. Use Send history connection test to validate transport without executing a therapy command.
 

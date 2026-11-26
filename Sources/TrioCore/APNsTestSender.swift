@@ -147,7 +147,7 @@ public actor APNsTestSender {
         request.setValue("10", forHTTPHeaderField: "apns-priority")
         // Synthetic tests may wait briefly for the Mac’s APNs connection.
         // This retention policy must not be reused for insulin commands.
-        request.setValue(String(Int(test.createdAt.timeIntervalSince1970) + 60), forHTTPHeaderField: "apns-expiration")
+        request.setValue(String(Int(test.createdAt.timeIntervalSince1970) + 300), forHTTPHeaderField: "apns-expiration")
         request.setValue(test.id.uuidString.lowercased(), forHTTPHeaderField: "apns-id")
         request.httpBody = try test.payload()
         let configuration = URLSessionConfiguration.ephemeral

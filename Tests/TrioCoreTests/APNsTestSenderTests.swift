@@ -51,7 +51,7 @@ final class APNsTestSenderTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "apns-topic"), "com.example.mac")
         XCTAssertEqual(request.value(forHTTPHeaderField: "apns-push-type"), "alert")
         XCTAssertEqual(request.value(forHTTPHeaderField: "apns-priority"), "10")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "apns-expiration"), String(Int(test.createdAt.timeIntervalSince1970) + 60))
+        XCTAssertEqual(request.value(forHTTPHeaderField: "apns-expiration"), String(Int(test.createdAt.timeIntervalSince1970) + 300))
         XCTAssertEqual(request.value(forHTTPHeaderField: "apns-id"), test.id.uuidString.lowercased())
         let body = try XCTUnwrap(request.httpBody)
         XCTAssertEqual(try LoopbackReceipt.parse(body).id, test.id)

@@ -13,6 +13,7 @@ final class PushReceiver: ObservableObject {
     @Published private(set) var reply: LegacyReply?
     @Published private(set) var receivedAt: Date?
     @Published private(set) var testReceipt: LoopbackReceipt?
+    @Published private(set) var conditions = "Checking notification settings…"
 
     var signedTeamID: String? {
         guard let task = SecTaskCreateFromSelf(nil) else { return nil }
@@ -38,6 +39,34 @@ final class PushReceiver: ObservableObject {
         } catch { state = "Notification permission could not be requested. Check macOS Settings." }
     }
 
+    func refreshConditions() async {
+        let detail: String = await withCheckedContinuation { continuation in
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                let permission = switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral: "Allowed"
+                case .denied: "Denied"
+                case .notDetermined: "Not requested"
+                @unknown default: "Unknown"
+                }
+                let alerts = settings.alertSetting == .enabled ? "on" : "off"
+                continuation.resume(returning: "Notifications: \(permission) · Alerts: \(alerts)")
+            }
+        }
+        conditions = "\(detail) · Low Power Mode: \(ProcessInfo.processInfo.isLowPowerModeEnabled ? "on" : "off")"
+    }
+
+    func recoverAfterWake() async {
+        await refreshConditions()
+        // Refresh an already-authorized registration; never prompt or send another push.
+        if deviceToken != nil, environment != nil {
+            NSApplication.shared.registerForRemoteNotifications()
+        }
+        if let pending = APNsSenderModel.shared.test,
+           pending.state != .received, pending.state != .rejected {
+            _ = await deliveredTest(id: pending.id)
+        }
+    }
+
     func registered(_ token: Data) {
         deviceToken = token.map { String(format: "%02x", $0) }.joined()
         state = "Registered with Apple"
@@ -53,7 +82,11 @@ final class PushReceiver: ObservableObject {
 
     func clearReply() { reply = nil; receivedAt = nil }
 
-    func receiveTest(_ value: LoopbackReceipt) { testReceipt = value }
+    func receiveTest(_ value: LoopbackReceipt) {
+        testReceipt = value
+        // Receipt handling must work even when Command lab is not on screen.
+        APNsSenderModel.shared.receive(value)
+    }
 
     func deliveredTest(id: UUID) async -> LoopbackReceipt? {
         // Alert pushes can reach Notification Center while the app is in the background,
@@ -90,6 +123,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if Bundle.main.bundleURL.pathExtension == "app" {
             UNUserNotificationCenter.current().delegate = self
         }
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(recoverPush),
+            name: NSWorkspace.didWakeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(recoverPush),
+            name: .NSProcessInfoPowerStateDidChange, object: nil)
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) { recoverPush() }
+
+    @objc private func recoverPush() {
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        Task { await PushReceiver.shared.recoverAfterWake() }
     }
 
     func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
@@ -135,7 +182,11 @@ struct PushDiagnostics: View {
             Text("APNs receiver").font(DeskTheme.section)
             Text(push.state).font(DeskTheme.body)
             Text("Environment: \(push.environment ?? "Not provisioned")").font(DeskTheme.label).foregroundStyle(DeskTheme.muted)
+            Text(push.conditions).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+            Text("macOS can defer pushes on battery even when Low Power Mode is off. Registration is not a delivery guarantee.")
+                .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             HStack {
+                Button("Refresh notification status") { Task { await push.refreshConditions() } }
                 Button("Register this Mac") { Task { await push.register() } }
                 if let token = push.deviceToken {
                     Button("Copy device token") {
@@ -159,7 +210,7 @@ struct PushDiagnostics: View {
                 .font(DeskTheme.label).foregroundStyle(DeskTheme.muted)
             Divider()
             APNsSenderPanel()
-        }
+        }.task { await push.refreshConditions() }
     }
 }
 
@@ -254,6 +305,7 @@ final class APNsSenderModel: ObservableObject {
         guard signedTeam == teamID else { message = "The Team ID must match the team that signed this Mac app."; return }
         busy = true
         defer { busy = false }
+        await push.refreshConditions()
         do {
             let credentials = try APNsCredentials(teamID: teamID, keyID: keyID, privateKeyPEM: pem)
             let recipient = try MacTestRecipient(token: token, topic: topic, environment: environment)
@@ -262,17 +314,20 @@ final class APNsSenderModel: ObservableObject {
             test = pending; message = "Sending synthetic notification to this Mac…"
             timeout?.cancel()
             timeout = Task { [weak self] in
-                for _ in 0..<15 {
+                for attempt in 0..<150 {
                     do { try await Task.sleep(for: .seconds(2)) } catch { return }
                     guard let self, let current = self.test, current.id == pending.id,
                           current.state != .received, current.state != .rejected else { return }
                     if let receipt = await PushReceiver.shared.deliveredTest(id: pending.id) {
                         self.receive(receipt); return
                     }
+                    if attempt == 14, var delayed = self.test, delayed.waiting {
+                        delayed.unknown(); self.test = delayed
+                        self.message = "No return within 30 seconds. Still checking for up to 5 minutes; macOS may defer delivery on battery. No resend was sent."
+                    }
                 }
-                guard let self, var current = self.test, current.id == pending.id, current.waiting else { return }
-                current.unknown(); self.test = current
-                self.message = "No matching return within 30 seconds. No automatic retry was sent. A late return can still confirm this test."
+                guard let self, let current = self.test, current.id == pending.id, current.state == .unconfirmed else { return }
+                self.message = "No matching return within 5 minutes. Check Apple’s delivery log ID for power deferral or expiry. No automatic resend was sent."
             }
             let submission = try await sender.send(pending, to: recipient, credentials: credentials)
             deliveryLogID = submission.deliveryLogID
@@ -331,7 +386,7 @@ struct APNsSenderPanel: View {
                 }
                 Button("Check received test") { Task { await model.checkDelivery() } }.disabled(model.busy)
             }
-        }.onReceive(push.$testReceipt) { model.receive($0) }
+        }
     }
     @ViewBuilder private var credentialActions: some View {
         Button("Import .p8 key") { Task { await model.importKey() } }

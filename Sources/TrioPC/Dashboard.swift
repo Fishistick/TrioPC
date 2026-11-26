@@ -270,6 +270,7 @@ private struct StockBolusPanel: View {
     @EnvironmentObject var app: AppModel
     @ObservedObject private var control = StockBolusController.shared
     @ObservedObject private var push = PushReceiver.shared
+    @ObservedObject private var replyTest = APNsSenderModel.shared
     @State private var review: StockBolusDraft?
     @State private var checkedPhone = false
     @State private var showSetup = true
@@ -384,6 +385,14 @@ private struct StockBolusPanel: View {
             Text("Checks notifications already on this Mac. Sends nothing to your phone.")
                 .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             Text(push.replyRecovery).font(DeskTheme.label)
+            Button("Send a reply test to this Mac") { Task { await replyTest.testReplyPathToThisMac() } }
+                .disabled(replyTest.busy || replyTest.test?.waiting == true || push.deviceToken == nil)
+            Text("Sends one clearly labelled synthetic reply to this Mac, using the saved Mac key. No command is sent to Trio. Tests Mac reception, not the phone’s sending step.")
+                .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+            if replyTest.test?.replyFormat == true {
+                Text(replyTest.message).font(DeskTheme.label).textSelection(.enabled)
+                Text("Mac reply test: \(replyTest.testStatus)").font(DeskTheme.small)
+            }
             if let reply = push.reply {
                 Text(reply.aps.alert.body).textSelection(.enabled)
                 Text("Reply sent by Trio: \(Date(timeIntervalSince1970: reply.timestamp).formatted())")

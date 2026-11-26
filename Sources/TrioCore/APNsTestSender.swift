@@ -66,12 +66,14 @@ public struct LoopbackReceipt: Decodable, Sendable {
     public let id: UUID
     let marker: Bool
     public let timestamp: TimeInterval
-    enum CodingKeys: String, CodingKey { case id = "triopc_test_id", marker = "triopc_test", timestamp }
+    public let replyFormat: Bool?
+    enum CodingKeys: String, CodingKey { case id = "triopc_test_id", marker = "triopc_test", timestamp, replyFormat = "triopc_reply_test" }
     public static func parse(_ data: Data) throws -> Self {
         guard data.count <= 4096 else { throw APNsTestError.invalidRecipient }
         let value = try JSONDecoder().decode(Self.self, from: data)
         guard value.marker, value.timestamp.isFinite, value.timestamp > 0, value.timestamp <= 253402300799
         else { throw APNsTestError.invalidRecipient }
+        if value.replyFormat == true { _ = try LegacyReply.parse(data) }
         return value
     }
 }
@@ -80,8 +82,11 @@ public struct LoopbackTest: Codable, Sendable {
     public enum State: String, Codable, Sendable { case sending, awaitingReturn, received, unconfirmed, rejected }
     public let id: UUID
     public let createdAt: Date
+    public let replyFormat: Bool?
     public private(set) var state: State = .sending
-    public init(id: UUID = UUID(), now: Date = Date()) { self.id = id; createdAt = now }
+    public init(id: UUID = UUID(), now: Date = Date(), replyFormat: Bool = false) {
+        self.id = id; createdAt = now; self.replyFormat = replyFormat ? true : nil
+    }
     public mutating func accepted() { if state == .sending { state = .awaitingReturn } }
     public mutating func unknown() { if state != .received && state != .rejected { state = .unconfirmed } }
     public mutating func rejected() { if state != .received { state = .rejected } }
@@ -91,6 +96,19 @@ public struct LoopbackTest: Codable, Sendable {
     public var waiting: Bool { state == .sending || state == .awaitingReturn }
 
     func payload() throws -> Data {
+        if replyFormat == true {
+            struct Alert: Encodable {
+                let title = "TrioPC reply test — no insulin command"
+                let body = "Synthetic Trio-format reply received on this Mac. No command was sent to your phone."
+            }
+            struct APS: Encodable { let alert = Alert(); let sound = "default" }
+            struct Payload: Encodable {
+                let aps = APS(); let command_status = "success"; let command_type = "bolus"
+                let timestamp: TimeInterval
+                let triopc_test = true; let triopc_reply_test = true; let triopc_test_id: UUID
+            }
+            return try JSONEncoder().encode(Payload(timestamp: createdAt.timeIntervalSince1970, triopc_test_id: id))
+        }
         struct Alert: Encodable { let title = "TrioPC connection test"; let body = "Synthetic notification sent to this Mac only. No insulin command." }
         struct APS: Encodable { let alert = Alert() }
         struct Payload: Encodable {
@@ -191,7 +209,7 @@ public actor APNsTestSender {
         request.setValue("10", forHTTPHeaderField: "apns-priority")
         // Synthetic tests may wait briefly for the Mac’s APNs connection.
         // This retention policy must not be reused for insulin commands.
-        request.setValue(String(Int(test.createdAt.timeIntervalSince1970) + 300), forHTTPHeaderField: "apns-expiration")
+        request.setValue(test.replyFormat == true ? "0" : String(Int(test.createdAt.timeIntervalSince1970) + 300), forHTTPHeaderField: "apns-expiration")
         request.setValue(test.id.uuidString.lowercased(), forHTTPHeaderField: "apns-id")
         request.httpBody = try test.payload()
         let configuration = URLSessionConfiguration.ephemeral

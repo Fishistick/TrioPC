@@ -137,7 +137,8 @@ final class PushReceiver: ObservableObject {
     }
 
     nonisolated static func parse(_ payload: [AnyHashable: Any]) -> LegacyReply? {
-        guard JSONSerialization.isValidJSONObject(payload),
+        guard payload["triopc_test"] == nil, payload["triopc_reply_test"] == nil,
+              JSONSerialization.isValidJSONObject(payload),
               let data = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
         return try? LegacyReply.parse(data)
     }
@@ -342,15 +343,16 @@ final class APNsSenderModel: ObservableObject {
         } catch { message = (error as? APNsTestError)?.localizedDescription ?? "Keychain could not save the credentials." }
     }
 
-    func load() {
+    @discardableResult func load() -> Bool {
         do {
             let text = try Keychain.read(service: Self.service, account: "provider")
-            guard !text.isEmpty else { message = "No saved APNs credentials."; return }
+            guard !text.isEmpty else { message = "No saved APNs credentials."; return false }
             let value = try JSONDecoder().decode(Stored.self, from: Data(text.utf8))
             _ = try APNsCredentials(teamID: value.teamID, keyID: value.keyID, privateKeyPEM: value.pem)
             teamID = value.teamID; keyID = value.keyID; pem = value.pem; hasKey = true; saved = true
             message = "Saved credentials loaded from Keychain."
-        } catch { message = "Could not load valid APNs credentials from Keychain." }
+            return true
+        } catch { message = "Could not load valid APNs credentials from Keychain."; return false }
     }
 
     func forget() {
@@ -362,9 +364,11 @@ final class APNsSenderModel: ObservableObject {
     }
 
     func receive(_ receipt: LoopbackReceipt?) {
-        guard let receipt, var current = test, receipt.id == current.id else { return }
+        guard let receipt, var current = test, receipt.id == current.id, receipt.replyFormat == current.replyFormat else { return }
         current.receive(id: receipt.id); test = current; timeout?.cancel()
-        message = "Round trip confirmed: this app received its matching synthetic test notification."
+        message = current.replyFormat == true
+            ? "Mac reply test passed. The matching synthetic Trio-format reply arrived and was parsed. This does not test the phone’s sending step or confirm insulin delivery."
+            : "Round trip confirmed: this app received its matching synthetic test notification."
     }
 
     func checkDelivery() async {
@@ -377,7 +381,13 @@ final class APNsSenderModel: ObservableObject {
         else { message = "No matching test is in this app’s delivered notifications yet. It may be delayed or already dismissed." }
     }
 
-    func sendToThisMac() async {
+    func testReplyPathToThisMac() async {
+        guard !busy, test?.waiting != true else { return }
+        guard load() else { return }
+        await sendToThisMac(replyFormat: true)
+    }
+
+    func sendToThisMac(replyFormat: Bool = false) async {
         let push = PushReceiver.shared
         guard saved, !busy, test?.waiting != true,
               let token = push.deviceToken, let topic = Bundle.main.bundleIdentifier,
@@ -392,9 +402,9 @@ final class APNsSenderModel: ObservableObject {
         do {
             let credentials = try APNsCredentials(teamID: teamID, keyID: keyID, privateKeyPEM: pem)
             let recipient = try MacTestRecipient(token: token, topic: topic, environment: environment)
-            let pending = LoopbackTest()
+            let pending = LoopbackTest(replyFormat: replyFormat)
             deliveryLogID = nil
-            test = pending; message = "Sending synthetic notification to this Mac…"
+            test = pending; message = replyFormat ? "Sending a synthetic Trio-format reply to this Mac only…" : "Sending synthetic notification to this Mac…"
             timeout?.cancel()
             timeout = Task { [weak self] in
                 for attempt in 0..<150 {

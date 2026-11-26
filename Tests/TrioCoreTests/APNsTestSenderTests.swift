@@ -70,6 +70,34 @@ final class APNsTestSenderTests: XCTestCase {
         }
     }
 
+    func testSyntheticReplyUsesStockReplyFieldsAndZeroExpiryWithoutACommand() async throws {
+        let capture = RequestCapture()
+        let sender = APNsTestSender(transport: { request in
+            await capture.add(request)
+            return (Data(), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        })
+        let test = LoopbackTest(replyFormat: true)
+        try await sender.send(test, to: MacTestRecipient(token: "ab12", topic: "com.example.mac", environment: .development), credentials: credentials())
+        let requests = await capture.all()
+        XCTAssertEqual(requests.count, 1)
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "apns-expiration"), "0")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "apns-topic"), "com.example.mac")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "apns-push-type"), "alert")
+        let body = try XCTUnwrap(request.httpBody)
+        let reply = try LegacyReply.parse(body)
+        XCTAssertTrue(reply.aps.alert.title.contains("test"))
+        XCTAssertTrue(reply.aps.alert.body.contains("Synthetic"))
+        let receipt = try LoopbackReceipt.parse(body)
+        XCTAssertEqual(receipt.id, test.id); XCTAssertEqual(receipt.replyFormat, true)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        for key in ["bolus_amount", "encrypted_data", "return_notification", "user"] { XCTAssertNil(json[key]) }
+        let restored = try LoopbackCheckpoint.parse(JSONEncoder().encode(LoopbackCheckpoint(test: test, deliveryLogID: nil)))
+        XCTAssertEqual(restored.recoveredTest.replyFormat, true)
+        let malformed = String(decoding: body, as: UTF8.self).replacingOccurrences(of: "command_status", with: "missing_status")
+        XCTAssertThrowsError(try LoopbackReceipt.parse(Data(malformed.utf8)))
+    }
+
     func testProviderTokenIsReusedForSameCredentials() async throws {
         let capture = RequestCapture()
         let sender = APNsTestSender(transport: { request in

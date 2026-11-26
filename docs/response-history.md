@@ -65,7 +65,7 @@ If a query reaches 500 documents, TrioPC explicitly warns that older records may
 
 The phone outbox holds up to 1,000 pending responses and refuses to silently overwrite a corrupt file or send a pending queue to a different configured server. Disk failure, a full queue, app removal, or termination before the response is journaled can still leave gaps. No upload can occur while iOS prevents Trio from running or before protected storage is available. This first publisher does not turn legacy callbacks into a complete, crash-reconciled pump lifecycle.
 
-A legacy “success” may mean only that a bolus started; a failure does not establish zero delivery. Neither APNs nor recovered history mutates TrioPC's simulator or enables real commands. Reliable bolus control still requires persisted command UUIDs, revisions, deduplication and pump-result reconciliation described in `control-design.md`.
+A legacy “success” may mean only that a bolus started; a failure does not establish zero delivery. Neither APNs replies nor recovered history mutates TrioPC's simulator, confirms pump completion or unlocks an unresolved stock-mode attempt. The separate manually confirmed stock-Trio bolus workflow does not require this history patch. A stronger correlated, pump-verified lifecycle still requires persisted command UUIDs, revisions, deduplication and pump-result reconciliation described in `control-design.md`.
 
 ## Validation and deployment status
 

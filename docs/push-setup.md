@@ -1,6 +1,6 @@
 # Native APNs receiver setup
 
-TrioPC can receive notifications directly on a Mac and send a fixed synthetic test notification back to that same Mac. No extra server is needed. It also accepts Trio v1.0.2's legacy response schema for inspection only. There is no Trio command sender, persistent dosing-command correlation, pump reconciliation or verified insulin-completion status.
+TrioPC can receive notifications directly on a Mac and send a fixed synthetic test notification back to that same Mac. No extra server is needed. It also accepts Trio v1.0.2's legacy response schema for inspection only. A separate opt-in [stock-Trio bolus workflow](stock-trio-control.md) is available without modifying the phone app. It has no phone-side command correlation, pump reconciliation or verified insulin-completion status.
 
 ## Build with push capability
 

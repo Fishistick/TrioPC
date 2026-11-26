@@ -15,8 +15,9 @@ A native SwiftUI Mac companion for Trio and Nightscout. macOS 14 or later; no El
 - Opt-in APNs registration and an advisory legacy-reply inspector in Command lab, using a separately provisioned Xcode app target.
 - An outgoing APNs diagnostic that sends a fixed synthetic notification back to this Mac, with credentials in Keychain and a matching test ID to confirm receipt.
 - An encrypted Nightscout advisory-response history reader with duplicate/conflict handling and an encrypted local cache. Requires the [separate opt-in Trio publisher patch](integrations/trio-v1.0.2/README.md); it is not active in unmodified Trio. See [setup and coverage limits](docs/response-history.md).
+- An opt-in **Bolus** workspace using stock Trio v1.0.2: manually entered amounts, explicit review, macOS authentication, and an encrypted local attempt record. The history patch is optional. See [stock-Trio setup and limitations](docs/stock-trio-control.md).
 
-**Live bolus commands and remote cancellation are not implemented.** The simulator cannot send insulin commands. The APNs receiver does not correlate commands or verify insulin delivery. It is not a validated dosing system. Nightscout treatment history is not command confirmation.
+**Stock-Trio bolus sending is a prototype, not a validated dosing system.** It has been tested with mocked transports, not a live bolus. There is no remote bolus cancellation or pump-completion verification. The Command lab simulator remains separate and cannot send insulin commands. Uncorrelated APNs replies and Nightscout treatment history do not confirm delivery.
 
 ## Run
 
@@ -46,9 +47,11 @@ See [the control design](docs/control-design.md) for the remaining work. The fir
 
 ## Privacy
 
-Connection settings stay on the Mac. This app has no analytics or telemetry. Monitoring sends read requests only to the Nightscout server configured locally. Opt-in notification registration and the self-test contact Apple; device tokens and received reply messages stay in memory and are not logged. APNs credentials are stored in a separate Keychain item; the private key never leaves the Mac, while a signed provider token is sent to Apple over TLS. The Copy device token action places the token on the system clipboard. Repository examples and simulated readings are synthetic. Never attach personal health records, real server addresses, API secrets, access tokens or APNs credentials to an issue or pull request.
+Connection settings stay on the Mac. This app has no analytics or telemetry. Monitoring sends read requests only to the Nightscout server configured locally. Opt-in notification registration and the self-test contact Apple; device tokens and direct legacy reply messages stay in memory and are not logged. APNs credentials are stored in Keychain. The self-test sends a signed provider token to Apple over TLS. **Stock-Trio bolus replies additionally require the Mac return APNs key inside the encrypted command sent to the phone**; this is disclosed before confirmation. The Copy device token action places the token on the system clipboard. Repository examples and simulated readings are synthetic. Never attach personal health records, real server addresses, API secrets, access tokens or APNs credentials to an issue or pull request.
 
 The latest synthetic APNs test's ID, time, state and delivery-log ID are saved locally for restart recovery. Nightscout history uses a separate per-server Keychain pairing secret and stores only encrypted history records in its local cache. Decrypted history is held in memory for display. The separate phone patch, when enabled, uploads encrypted advisory responses to the already configured Nightscout server. It is not installed or enabled by building the Mac app.
+
+Stock-Trio control settings are separate Keychain items. An encrypted, process-locked journal retains up to 1,000 local bolus attempts and phone-review acknowledgements; it is never a resend queue. Unresolved attempts survive restarts and block another send until a deliberate phone review.
 
 See [the roadmap](docs/roadmap.md) for planned work, including a Trio-style chart with active carbohydrates (COB) and active insulin (IOB).
 

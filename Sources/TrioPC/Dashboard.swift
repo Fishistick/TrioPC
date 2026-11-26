@@ -6,16 +6,16 @@ import AppKit
 struct Dashboard: View {
     @EnvironmentObject var model: AppModel
     @State private var showConnection = false
-    @State private var lab = false
+    @State private var workspace = 0
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
                 Label("TrioPC", systemImage: "circle.hexagongrid.fill").font(DeskTheme.identity)
                 Spacer()
-                Picker("Workspace", selection: $lab) {
-                    Text("Glucose").tag(false); Text("Command lab").tag(true)
-                }.pickerStyle(.segmented).labelsHidden().frame(width: 220)
+                Picker("Workspace", selection: $workspace) {
+                    Text("Glucose").tag(0); Text("Bolus").tag(1); Text("Command lab").tag(2)
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 300)
                 Spacer()
                 Button { showConnection = true } label: { Image(systemName: "slider.horizontal.3") }
                     .help("Connection settings").accessibilityLabel("Connection settings").buttonStyle(.borderless)
@@ -26,7 +26,9 @@ struct Dashboard: View {
                     if let error = model.error {
                         Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(DeskTheme.warning)
                     }
-                    if lab { CommandLab() } else { overview }
+                    if workspace == 2 { CommandLab() }
+                    else if workspace == 1 { StockBolusPanel() }
+                    else { overview }
                 }.frame(maxWidth: 1000, alignment: .leading).padding(28).frame(maxWidth: .infinity)
             }
         }.font(DeskTheme.body).foregroundStyle(DeskTheme.ink).background(DeskTheme.canvas).tint(DeskTheme.accent)
@@ -248,7 +250,7 @@ struct CommandLab: View {
             }
             if let error = model.commandError { Text(error).foregroundStyle(DeskTheme.warning) }
             Divider()
-            Label("Live control is not available in this build.", systemImage: "lock.shield").font(DeskTheme.label).foregroundStyle(DeskTheme.muted)
+            Label("Command lab is a simulation workspace. Stock-Trio controls are in Bolus.", systemImage: "lock.shield").font(DeskTheme.label).foregroundStyle(DeskTheme.muted)
             Divider()
             PushDiagnostics()
             Divider()
@@ -261,6 +263,117 @@ struct CommandLab: View {
         Button("Lose response") { model.advance(.uncertain) }
         Button("Stop at 50%") { model.advance(.partial) }
         Button("Complete") { model.advance(.completed) }
+    }
+}
+
+private struct StockBolusPanel: View {
+    @EnvironmentObject var app: AppModel
+    @ObservedObject private var control = StockBolusController.shared
+    @ObservedObject private var push = PushReceiver.shared
+    @State private var review: StockBolusDraft?
+    @State private var checkedPhone = false
+    @State private var showSetup = true
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Bolus · stock Trio").font(DeskTheme.title)
+            Text("Uses Trio’s existing remote-control protocol. No phone patch or response-history pairing is required.")
+                .font(DeskTheme.label).foregroundStyle(DeskTheme.muted)
+            Text("Manual amounts only. Apple acceptance and legacy replies cannot verify completed insulin delivery. Stock Trio cannot remotely cancel a bolus through this protocol.")
+                .font(DeskTheme.label).foregroundStyle(DeskTheme.warning)
+            DisclosureGroup("Connection and control settings", isExpanded: $showSetup) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Button("Read Trio profile from Nightscout") { Task { await control.discover(app: app) } }.disabled(app.demo || control.busy)
+                    if let profile = control.profile {
+                        Text("Trio app: \(profile.bundleID)").font(DeskTheme.code).textSelection(.enabled)
+                        Text("Team: \(profile.teamID) · APNs: \(profile.environment.rawValue)").font(DeskTheme.small)
+                        Text("Device fingerprint: \(profile.fingerprint.suffix(12))").font(DeskTheme.code).foregroundStyle(DeskTheme.muted)
+                        Text("Profile published: \(profile.publishedAt.formatted())").font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+                    }
+                    SecureField("Existing Trio remote-control shared secret", text: $control.sharedSecret).textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Stock Trio shared secret")
+                    HStack {
+                        TextField("Trio’s maximum bolus (U)", text: $control.maximum).textFieldStyle(.roundedBorder)
+                        TextField("Trio’s bolus increment (U)", text: $control.increment).textFieldStyle(.roundedBorder)
+                    }
+                    Text("Copy both limits from your current Trio pump settings. Use decimal points; amounts are never rounded automatically.")
+                        .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+                    TextField("APNs Key ID for the Trio app’s team", text: $control.keyID).textFieldStyle(.roundedBorder)
+                    HStack {
+                        Button("Import Trio APNs .p8 key") { Task { await control.importProvider() } }
+                        Button("Use saved Mac key for Trio") { control.useMacProvider() }.disabled(control.profile == nil)
+                    }
+                    Text(control.providerDescription).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+                    Text("Replies require the Mac APNs key saved in Command lab. Stock Trio receives that return key only inside the encrypted command. A separate Trio signing key is supported when the teams differ.")
+                        .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+                    HStack {
+                        Button("Save control settings") { control.saveConfiguration() }.disabled(control.profile == nil)
+                        Button("Forget control settings") { control.forgetConfiguration() }
+                    }
+                }.padding(.top, 12).disabled(control.busy)
+            }
+            Toggle("I verified this is my Trio app and these limits match its current pump settings", isOn: $control.targetVerified)
+                .disabled(control.profile == nil || control.busy)
+            Toggle("Enable stock-Trio bolus control for this session", isOn: $control.enabled).disabled(control.busy)
+            if app.demo { Text("Connect Nightscout in Connection settings first.").foregroundStyle(DeskTheme.warning) }
+            else if !app.bolusReadingIsFresh {
+                Text("A Nightscout glucose reading within 10 minutes is required by this prototype. Refresh before reviewing a bolus.")
+                    .font(DeskTheme.label).foregroundStyle(DeskTheme.warning)
+            }
+            HStack {
+                TextField("Manually entered bolus (U)", text: $control.amount).textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 230).accessibilityLabel("Stock Trio bolus units")
+                Button(control.busy ? "Working…" : "Review bolus…") { Task { review = await control.prepare(app: app) } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(control.busy || !control.enabled || !control.saved || !control.targetVerified || control.needsPhoneReview || !control.journalAvailable)
+            }.disabled(control.busy)
+            Text(control.message).font(DeskTheme.label).textSelection(.enabled)
+            if let attempt = control.latestAttempt {
+                Divider()
+                Text("Last local attempt: \(NSDecimalNumber(decimal: attempt.units).stringValue) U · \(attempt.createdAt.formatted())").font(DeskTheme.label)
+                Text(submissionLabel(attempt.submission)).font(DeskTheme.label).foregroundStyle(DeskTheme.warning)
+                if !attempt.phoneReviewCompleted {
+                    Text("This attempt cannot be resent. Check Trio on your phone for delivery and any active bolus before preparing a separate new request.")
+                        .font(DeskTheme.label)
+                    Toggle("I checked the outcome in Trio on my phone", isOn: $checkedPhone)
+                    Button("Record phone review") {
+                        Task { await control.finishPhoneReview(); checkedPhone = false }
+                    }.disabled(!checkedPhone || control.busy)
+                } else { Text("Phone review recorded; delivery is not independently verified by TrioPC.").font(DeskTheme.small).foregroundStyle(DeskTheme.muted) }
+            }
+            if let reply = push.reply {
+                Divider()
+                Text("Uncorrelated Trio reply").font(DeskTheme.section)
+                Text(reply.aps.alert.body).textSelection(.enabled)
+                Text(reply.interpretation).font(DeskTheme.small).foregroundStyle(DeskTheme.warning)
+            }
+        }.padding(24).frame(maxWidth: .infinity, alignment: .leading).deskSurface()
+            .task { await control.enter() }
+            .onChange(of: control.latestAttempt?.id) { _, _ in checkedPhone = false }
+            .sheet(item: $review, onDismiss: { control.cancelReview() }) { draft in
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Review bolus").font(DeskTheme.title)
+                    Text("\(NSDecimalNumber(decimal: draft.units).stringValue) U").font(DeskTheme.number)
+                    Text("Target: \(draft.bundleID)").font(DeskTheme.code)
+                    Text("Device fingerprint: \(draft.targetFingerprint.suffix(12))").font(DeskTheme.code)
+                    Text("This can deliver insulin. The next step requires your Mac password or Touch ID. The request is sent once; no automatic resend or remote cancellation is available.")
+                    Text("The encrypted request also contains the Mac’s saved APNs return key so stock Trio can send replies.").font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+                    HStack {
+                        Button("Cancel") { control.cancelReview(); review = nil }.keyboardShortcut(.cancelAction).disabled(control.busy)
+                        Spacer()
+                        Button("Authenticate and send \(NSDecimalNumber(decimal: draft.units).stringValue) U", role: .destructive) {
+                            Task { await control.submit(draft, app: app); review = nil }
+                        }.disabled(control.busy)
+                    }
+                }.padding(28).frame(width: 520)
+            }
+    }
+    private func submissionLabel(_ state: StockBolusAttempt.Submission) -> String {
+        switch state {
+        case .attempting: "Submission was interrupted; delivery is unknown."
+        case .acceptedByApple: "Accepted by Apple; insulin delivery is unverified."
+        case .rejectedByApple: "Not accepted by Apple; phone review is required before another request."
+        case .unknown: "Connection outcome unknown; insulin delivery is unverified."
+        }
     }
 }
 

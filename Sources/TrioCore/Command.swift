@@ -16,7 +16,7 @@ public enum CommandState: String, Codable, CaseIterable, Sendable {
     public var terminal: Bool { [.rejected, .partial, .completed].contains(self) }
 }
 
-/// Simulator model only. No APNs sender or insulin-delivery transport is present.
+/// Simulator model only. It never invokes the separate stock-Trio bolus sender.
 public struct SimulatedCommand: Codable, Identifiable, Sendable {
     public let id: UUID
     public let requestedUnits: Decimal

@@ -159,6 +159,20 @@ final class AppModel: ObservableObject {
         } catch { historyMessage = "Could not remove the history secret from Keychain." }
     }
 
+    func stockTrioProfile() async throws -> (StockTrioProfile, String) {
+        guard !demo, let client = activeClient, let account = historyAccount else { throw StockBolusError.invalidTarget }
+        let requestedGeneration = generation
+        let profile = try await client.fetchStockTrioProfile()
+        guard requestedGeneration == generation else { throw StockBolusError.invalidTarget }
+        return (profile, account)
+    }
+
+    var bolusReadingIsFresh: Bool {
+        guard !demo, let latest else { return false }
+        let age = Date().timeIntervalSince(latest.timestamp)
+        return age >= -60 && age <= 600
+    }
+
     func refreshResponseHistory() async {
         guard !historyRefreshing, let client = activeClient, let account = historyAccount else { return }
         let keyAtStart = historyKey

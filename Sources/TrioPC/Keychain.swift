@@ -31,6 +31,16 @@ enum Keychain {
             guard added == errSecSuccess else { throw KeychainError(status: added) }
         } else if status != errSecSuccess { throw KeychainError(status: status) }
     }
+
+    static func createIfAbsent(_ value: String, service: String, account: String) throws -> String {
+        let item: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: account,
+            kSecValueData as String: Data(value.utf8), kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
+        let status = SecItemAdd(item as CFDictionary, nil)
+        if status == errSecDuplicateItem { return try read(service: service, account: account) }
+        guard status == errSecSuccess else { throw KeychainError(status: status) }
+        return value
+    }
 }
 
 struct KeychainError: LocalizedError {

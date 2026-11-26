@@ -151,6 +151,20 @@ public struct APNsTestSubmission: Sendable {
     }
 }
 
+actor APNsProviderTokens {
+    static let shared = APNsProviderTokens()
+    private var cache: [String: (issuedAt: Date, jwt: String)] = [:]
+    func token(credentials: APNsCredentials, now: Date) throws -> String {
+        if let cached = cache[credentials.identity], now.timeIntervalSince(cached.issuedAt) >= 0,
+           now.timeIntervalSince(cached.issuedAt) < 50 * 60 { return cached.jwt }
+        let token = try credentials.jwt(at: now)
+        if cache.count >= 32 { cache.removeAll() }
+        cache[credentials.identity] = (now, token)
+        return token
+    }
+    func invalidate(_ identity: String) { cache[identity] = nil }
+}
+
 private final class APNsNoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
@@ -162,19 +176,11 @@ private final class APNsNoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
 public actor APNsTestSender {
     public typealias Transport = @Sendable (URLRequest) async throws -> (Data, URLResponse)
     private let transport: Transport?
-    private var cache: (identity: String, issuedAt: Date, jwt: String)?
     public init(transport: Transport? = nil) { self.transport = transport }
 
     @discardableResult
     public func send(_ test: LoopbackTest, to recipient: MacTestRecipient, credentials: APNsCredentials, now: Date = Date()) async throws -> APNsTestSubmission {
-        let jwt: String
-        if let cache, cache.identity == credentials.identity, now.timeIntervalSince(cache.issuedAt) >= 0,
-           now.timeIntervalSince(cache.issuedAt) < 50 * 60 {
-            jwt = cache.jwt
-        } else {
-            jwt = try credentials.jwt(at: now)
-            cache = (credentials.identity, now, jwt)
-        }
+        let jwt = try await APNsProviderTokens.shared.token(credentials: credentials, now: now)
         let url = URL(string: "https://\(recipient.environment.host)/3/device/\(recipient.token)")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"; request.timeoutInterval = 20
@@ -203,7 +209,7 @@ public actor APNsTestSender {
         let allowed = ["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered", "InvalidProviderToken", "ExpiredProviderToken", "Forbidden", "BadTopic", "TopicDisallowed", "TooManyRequests", "TooManyProviderTokenUpdates", "BadEnvironmentKeyIdInToken", "BadEnvironment", "InternalServerError", "ServiceUnavailable", "PayloadTooLarge", "MissingTopic"]
         let parsed = data.count <= 4096 ? (try? JSONDecoder().decode(Reason.self, from: data).reason) : nil
         let reason = parsed.flatMap { allowed.contains($0) ? $0 : nil } ?? "UnrecognizedResponse"
-        if response.statusCode == 403 { cache = nil }
+        if response.statusCode == 403 { await APNsProviderTokens.shared.invalidate(credentials.identity) }
         throw APNsTestError.rejected(response.statusCode, reason)
     }
 }

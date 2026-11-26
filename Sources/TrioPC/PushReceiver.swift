@@ -4,6 +4,8 @@ import Security
 import TrioCore
 import SwiftUI
 import UniformTypeIdentifiers
+import CryptoKit
+import LocalAuthentication
 
 @MainActor
 final class PushReceiver: ObservableObject {
@@ -455,5 +457,206 @@ struct APNsSenderPanel: View {
         Button("Save credentials") { model.save() }.disabled(!model.hasKey)
         Button("Load saved") { model.load() }
         Button("Forget saved") { model.forget() }
+    }
+}
+
+@MainActor
+final class StockBolusController: ObservableObject {
+    static let shared = StockBolusController()
+    @Published var enabled = false { didSet { if !enabled { cancelReview() } } }
+    @Published var sharedSecret = "" { didSet { if sharedSecret != oldValue { invalidateSettings() } } }
+    @Published var maximum = "" { didSet { if maximum != oldValue { invalidateSettings() } } }
+    @Published var increment = "" { didSet { if increment != oldValue { invalidateSettings() } } }
+    @Published var keyID = "" { didSet { if keyID != oldValue { invalidateSettings() } } }
+    @Published var amount = "" { didSet { if amount != oldValue { cancelReview() } } }
+    @Published var targetVerified = false { didSet { if !targetVerified { cancelReview() } } }
+    @Published private(set) var profile: StockTrioProfile?
+    @Published private(set) var saved = false
+    @Published private(set) var providerLoaded = false
+    @Published private(set) var busy = false
+    @Published private(set) var latestAttempt: StockBolusAttempt?
+    @Published private(set) var journalAvailable = true
+    @Published private(set) var message = "Read your Trio profile from Nightscout, then configure stock-Trio control."
+    private var providerPEM = ""
+    private var pairedFingerprint: String?
+    private var account: String?
+    private var pendingDraft: StockBolusDraft?
+    private var authentication: LAContext?
+    private var journal: StockBolusJournal?
+    private let sender = StockTrioBolusSender()
+    private static let service = "com.fishistick.TrioPC.stock-bolus"
+    private struct Configuration: Codable { let secret: String; let maximum: String; let increment: String; let keyID: String; let pem: String; let targetFingerprint: String }
+    private struct MacProvider: Codable { let teamID: String; let keyID: String; let pem: String }
+    private var journalURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("TrioPC", isDirectory: true).appendingPathComponent("stock-bolus-attempts.v1.enc")
+    }
+    var needsPhoneReview: Bool { latestAttempt?.phoneReviewCompleted == false }
+    var providerDescription: String { providerLoaded ? "APNs private key loaded; contents hidden." : "Import a key authorised for the Trio app’s topic and team." }
+
+    private func invalidateSettings() { saved = false; targetVerified = false; cancelReview() }
+    func cancelReview() { pendingDraft = nil; authentication?.invalidate(); authentication = nil }
+
+    func enter() async {
+        if FileManager.default.fileExists(atPath: journalURL.path) { await reloadJournal() }
+    }
+    func discover(app: AppModel) async {
+        guard !busy else { return }; busy = true; defer { busy = false }
+        do {
+            let (fresh, server) = try await app.stockTrioProfile()
+            guard fresh.bundleID != Bundle.main.bundleIdentifier else { throw StockBolusError.invalidTarget }
+            let changed = profile?.fingerprint != fresh.fingerprint || account != server
+            profile = fresh
+            if changed { saved = false; targetVerified = false; cancelReview() }
+            if account != server { account = server; loadConfiguration() }
+            message = "Trio profile loaded. Verify the app identity and copy its current bolus maximum and increment."
+        } catch { message = "Could not read a valid Trio profile. Check Nightscout and upload Trio’s current profile from the phone." }
+    }
+    func importProvider() async {
+        let panel = NSOpenPanel(); panel.allowedContentTypes = [UTType(filenameExtension: "p8") ?? .data]
+        panel.allowsMultipleSelection = false; panel.canChooseDirectories = false
+        guard await panel.begin() == .OK, let url = panel.url else { return }
+        let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 16385) <= 16384 else { throw StockBolusError.invalidSettings }
+            let pem = try String(contentsOf: url, encoding: .utf8)
+            _ = try APNsCredentials(teamID: "AAAAAAAAAA", keyID: "AAAAAAAAAA", privateKeyPEM: pem)
+            providerPEM = pem; providerLoaded = true; invalidateSettings()
+            message = "Key imported in memory. Save the control settings to store it in Keychain."
+        } catch { message = "Could not import a valid APNs P-256 .p8 key. No key contents were logged." }
+    }
+    func useMacProvider() {
+        do {
+            guard let profile else { throw StockBolusError.invalidTarget }
+            let value = try readMacProvider()
+            guard value.teamID == profile.teamID else { throw StockBolusError.invalidTarget }
+            providerPEM = value.pem; keyID = value.keyID; providerLoaded = true; invalidateSettings()
+            message = "Mac provider key copied in memory. It must also authorise the Trio topic. Save control settings."
+        } catch { message = "The saved Mac key is unavailable or belongs to a different team. Import a key for Trio’s team instead." }
+    }
+    private func readMacProvider() throws -> MacProvider {
+        let stored = try Keychain.read(service: "com.fishistick.TrioPC.apns-test", account: "provider")
+        let value = try JSONDecoder().decode(MacProvider.self, from: Data(stored.utf8))
+        _ = try APNsCredentials(teamID: value.teamID, keyID: value.keyID, privateKeyPEM: value.pem)
+        return value
+    }
+    private func returnInfo() throws -> StockTrioReturnInfo {
+        let mac = PushReceiver.shared
+        let value = try readMacProvider()
+        guard let token = mac.deviceToken, let bundle = Bundle.main.bundleIdentifier,
+              let raw = mac.environment, let environment = APNsEnvironment(rawValue: raw), value.teamID == mac.signedTeamID
+        else { throw StockBolusError.invalidSettings }
+        return try StockTrioReturnInfo(token: token, bundleID: bundle, environment: environment,
+            teamID: value.teamID, keyID: value.keyID, pem: value.pem)
+    }
+    func saveConfiguration() {
+        do {
+            guard let profile, let account, !sharedSecret.isEmpty, sharedSecret.utf8.count <= 1024 else { throw StockBolusError.invalidSettings }
+            _ = try StockBolusLimits(maximum: maximum, increment: increment)
+            _ = try APNsCredentials(teamID: profile.teamID, keyID: keyID, privateKeyPEM: providerPEM)
+            let value = Configuration(secret: sharedSecret, maximum: maximum, increment: increment, keyID: keyID, pem: providerPEM, targetFingerprint: profile.fingerprint)
+            try Keychain.save(String(decoding: JSONEncoder().encode(value), as: UTF8.self), service: Self.service, account: account)
+            pairedFingerprint = profile.fingerprint; saved = true; message = "Control settings saved in Keychain. Verify the target and enable control for this session."
+        } catch { message = (error as? StockBolusError)?.localizedDescription ?? "Could not save valid control settings in Keychain." }
+    }
+    private func loadConfiguration() {
+        sharedSecret = ""; maximum = ""; increment = ""; keyID = ""; providerPEM = ""; providerLoaded = false; saved = false; pairedFingerprint = nil
+        guard let account else { return }
+        do {
+            let text = try Keychain.read(service: Self.service, account: account)
+            guard !text.isEmpty else { return }
+            let value = try JSONDecoder().decode(Configuration.self, from: Data(text.utf8))
+            _ = try StockBolusLimits(maximum: value.maximum, increment: value.increment)
+            guard let profile else { return }
+            _ = try APNsCredentials(teamID: profile.teamID, keyID: value.keyID, privateKeyPEM: value.pem)
+            sharedSecret = value.secret; maximum = value.maximum; increment = value.increment; keyID = value.keyID
+            providerPEM = value.pem; providerLoaded = true; pairedFingerprint = value.targetFingerprint
+            saved = value.targetFingerprint == profile.fingerprint
+        } catch { message = "Saved control settings could not be loaded. Configure them again." }
+    }
+    func forgetConfiguration() {
+        guard !busy, let account else { return }
+        do { try Keychain.save("", service: Self.service, account: account); enabled = false; loadConfiguration() }
+        catch { message = "Could not remove control settings from Keychain." }
+    }
+    private func ensureJournal() async throws -> StockBolusJournal {
+        if let journal { _ = try await journal.attempts(); return journal }
+        let stored = try Keychain.read(service: Self.service, account: "journal-encryption-key")
+        let keyData: Data
+        if stored.isEmpty {
+            guard !FileManager.default.fileExists(atPath: journalURL.path) else { throw StockBolusError.storageUnavailable }
+            let candidate = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+            let actual = try Keychain.createIfAbsent(candidate.base64EncodedString(), service: Self.service, account: "journal-encryption-key")
+            guard let data = Data(base64Encoded: actual), data.count == 32 else { throw StockBolusError.storageUnavailable }
+            keyData = data
+        } else {
+            guard let data = Data(base64Encoded: stored), data.count == 32 else { throw StockBolusError.storageUnavailable }
+            keyData = data
+        }
+        let journal = try StockBolusJournal(url: journalURL, keyData: keyData)
+        self.journal = journal; _ = try await journal.attempts(); return journal
+    }
+    private func reloadJournal() async {
+        do {
+            let journal = try await ensureJournal(); latestAttempt = try await journal.attempts().last; journalAvailable = true
+        } catch { journalAvailable = false; message = StockBolusError.storageUnavailable.localizedDescription }
+    }
+    func prepare(app: AppModel) async -> StockBolusDraft? {
+        guard enabled, saved, targetVerified, !busy, journalAvailable, !needsPhoneReview, app.bolusReadingIsFresh else {
+            message = "Enable and verify control, use a recent Nightscout reading, and finish any previous phone review first."; return nil
+        }
+        busy = true; defer { busy = false }
+        do {
+            let (fresh, server) = try await app.stockTrioProfile()
+            guard server == account, fresh.fingerprint == profile?.fingerprint, fresh.fingerprint == pairedFingerprint else { throw StockBolusError.invalidTarget }
+            _ = try returnInfo()
+            let draft = try StockBolusDraft(amount: amount, limits: StockBolusLimits(maximum: maximum, increment: increment), profile: fresh)
+            profile = fresh; pendingDraft = draft; return draft
+        } catch { message = (error as? StockBolusError)?.localizedDescription ?? "Setup could not be verified. No bolus request was sent."; return nil }
+    }
+    func submit(_ draft: StockBolusDraft, app: AppModel) async {
+        guard !busy, enabled, saved, targetVerified, pendingDraft?.id == draft.id else { return }
+        busy = true
+        defer { busy = false; cancelReview() }
+        do {
+            let context = LAContext(); authentication = context
+            var error: NSError?
+            guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
+                message = "Mac authentication is unavailable. No bolus request was sent."; return
+            }
+            let granted: Bool = try await withCheckedThrowingContinuation { continuation in
+                context.evaluatePolicy(.deviceOwnerAuthentication,
+                    localizedReason: "Send \(NSDecimalNumber(decimal: draft.units).stringValue) U to your Trio app") { granted, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume(returning: granted) }
+                }
+            }
+            guard granted, enabled, saved, targetVerified, pendingDraft?.id == draft.id, app.bolusReadingIsFresh else {
+                message = "Review cancelled or data became stale. No bolus request was sent."; return
+            }
+            let (fresh, server) = try await app.stockTrioProfile()
+            guard pendingDraft?.id == draft.id, enabled, saved, server == account, fresh.fingerprint == draft.targetFingerprint,
+                  Date().timeIntervalSince(draft.createdAt) <= 60 else { throw StockBolusError.staleReview }
+            let reply = try returnInfo()
+            let credentials = try APNsCredentials(teamID: fresh.teamID, keyID: keyID, privateKeyPEM: providerPEM)
+            let journal = try await ensureJournal()
+            guard pendingDraft?.id == draft.id, enabled, saved, targetVerified, app.bolusReadingIsFresh else { throw StockBolusError.staleReview }
+            message = "Submitting once. Apple acceptance cannot confirm insulin delivery."
+            try await sender.send(draft, profile: fresh, sharedSecret: sharedSecret, reply: reply, credentials: credentials, journal: journal)
+            message = "Apple accepted this request. Check Trio on your phone for its outcome. No automatic resend will occur."
+        } catch {
+            if (error as NSError).domain == LAError.errorDomain { message = "Mac authentication did not complete. No bolus request was sent." }
+            else { message = (error as? StockBolusError)?.localizedDescription ?? "The operation ended without a verified outcome. Check Trio on your phone before another attempt." }
+        }
+        if journal != nil { await reloadJournal() }
+        if latestAttempt?.id == draft.id { amount = "" }
+    }
+    func finishPhoneReview() async {
+        guard !busy, let latestAttempt else { return }
+        do {
+            let journal = try await ensureJournal(); try await journal.finishPhoneReview(latestAttempt.id)
+            await reloadJournal(); amount = ""
+            message = "Phone review recorded. This does not mark the bolus completed or establish zero delivery."
+        } catch { journalAvailable = false; message = StockBolusError.storageUnavailable.localizedDescription }
     }
 }

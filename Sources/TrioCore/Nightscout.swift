@@ -107,6 +107,15 @@ public struct NightscoutClient: Sendable {
         return try ResponseHistoryPage.parse(await loadData(request, send: send))
     }
 
+    public func fetchStockTrioProfile() async throws -> StockTrioProfile {
+        let session = URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let send: Transport = transport ?? { try await session.data(for: $0) }
+        var request = request(path: "api/v1/profile.json", count: 1)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        return try StockTrioProfile.parse(await loadData(request, send: send))
+    }
+
     private func load<T: Decodable & Sendable>(_ request: URLRequest, send: Transport) async throws -> T {
         let data = try await loadData(request, send: send)
         do { return try JSONDecoder().decode(T.self, from: data) }

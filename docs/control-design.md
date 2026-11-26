@@ -2,7 +2,9 @@
 
 Baseline investigated: Trio v1.0.2 (`0b29cd53415e7f0e668677749cad8daf81c68c2f`) with its pinned OmnipodKit (`043b91dbf1958d26c55d927a6a8d651bc91f208d`), for Omnipod 5.
 
-## Why live control is not enabled
+## Stock-Trio mode and outcome limits
+
+An opt-in manually confirmed stock-Trio bolus sender is implemented; see `stock-trio-control.md`. It uses the existing protocol without the optional phone patch. It does not infer pump completion, remotely cancel a bolus, or automatically retry. Local attempt UUIDs are not phone-side deduplication keys. Validation has not included a live bolus.
 
 Trio's stable bolus path reports initiation/start, not verified full delivery. Its APNs response payload lacks a unique command ID. Its Omnipod progress reporter estimates delivery from elapsed time. The driver can report uncertain command delivery and return partial-dose information after cancellation, but the current remote interface does not expose that as a durable, correlated lifecycle.
 
@@ -12,7 +14,7 @@ Sources: [bolus handler](https://github.com/nightscout/Trio/blob/0b29cd53415e7f0
 
 A signed macOS app can register with APNs and receive replies directly. It needs an App ID with push capability, provisioning, current device token and compatible APNs credentials. An ad-hoc signed SwiftPM app cannot establish this production registration. APNs is best effort, so a live receiver alone does not solve lost replies or ambiguous pump outcomes.
 
-Required iPhone-side protocol changes, outside the existing Trio repository:
+For a stronger, correlated and pump-reconciled lifecycle beyond stock mode, required iPhone-side protocol changes remain outside the existing Trio repository:
 
 1. Persistent command UUID, explicit expiry and replay/deduplication handling. Persist intent before communicating with the pod. A crash during submission must reconcile rather than blindly retry.
 2. Association with a pump dose identity and pod identity, including programmed rounded amount, independently of estimated progress.

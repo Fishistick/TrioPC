@@ -3,7 +3,8 @@ import CryptoKit
 import Darwin
 
 public enum StockBolusError: Error, LocalizedError {
-    case invalidSettings, invalidUnits, invalidTarget, staleReview, pendingReview, storageUnavailable, uncertainTransport, appleRejected(Int)
+    case invalidSettings, invalidUnits, invalidTarget, staleReview, pendingReview, storageUnavailable, uncertainTransport
+    case appleRejected(Int, APNsBolusRejection? = nil)
     public var errorDescription: String? {
         switch self {
         case .invalidSettings: "Check the shared secret, APNs credentials, maximum and increment copied from Trio."
@@ -13,8 +14,48 @@ public enum StockBolusError: Error, LocalizedError {
         case .pendingReview: "Check the previous attempt in Trio on your phone before preparing another bolus."
         case .storageUnavailable: "The local bolus record is unavailable or locked by another app instance. Sending is blocked."
         case .uncertainTransport: "No reliable Apple response. Delivery is unknown. Check Trio on your phone; do not resend this attempt."
-        case .appleRejected(let status): "Apple did not accept this request (HTTP \(status)). Check Trio on your phone before another attempt."
+        case .appleRejected(let status, let reason): "Apple did not accept this request (HTTP \(status)). " + (reason.map { "\($0.rawValue): \($0.guidance) " } ?? "Apple’s specific reason was unavailable. ") + "Check Trio on your phone before another attempt."
         }
+    }
+}
+
+/// Only documented error codes are retained. Arbitrary response bodies never reach logs or UI.
+public enum APNsBolusRejection: String, Codable, Sendable {
+    case invalidProviderToken = "InvalidProviderToken"
+    case expiredProviderToken = "ExpiredProviderToken"
+    case missingProviderToken = "MissingProviderToken"
+    case forbidden = "Forbidden"
+    case topicDisallowed = "TopicDisallowed"
+    case topicMismatch = "TopicMismatch"
+    case badEnvironmentKeyIdInToken = "BadEnvironmentKeyIdInToken"
+    case unrelatedKeyIdInToken = "UnrelatedKeyIdInToken"
+    case badDeviceToken = "BadDeviceToken"
+    case deviceTokenNotForTopic = "DeviceTokenNotForTopic"
+    case unregistered = "Unregistered"
+    case tooManyProviderTokenUpdates = "TooManyProviderTokenUpdates"
+
+    public var guidance: String {
+        switch self {
+        case .invalidProviderToken, .missingProviderToken:
+            "Check that the Key ID and .p8 file belong together under Trio’s Apple developer team, and that the key has not been revoked. Check the Mac’s date and time too."
+        case .expiredProviderToken:
+            "Apple rejected an expired authentication token. Check the Mac’s date and time. The cached token was discarded; this bolus was not retried."
+        case .forbidden, .topicDisallowed, .topicMismatch:
+            "Check that this Apple key permits notifications to the phone’s Trio app. A key limited to the Mac app cannot be reused for Trio."
+        case .badEnvironmentKeyIdInToken:
+            "Check that this Apple key permits the APNs environment shown for Trio. Mac development and phone production permissions may differ."
+        case .unrelatedKeyIdInToken:
+            "Apple rejected the connection’s key association. This bolus was not retried."
+        case .badDeviceToken, .deviceTokenNotForTopic, .unregistered:
+            "Refresh Trio’s Nightscout profile and verify the phone app and APNs environment."
+        case .tooManyProviderTokenUpdates:
+            "Apple is limiting authentication token changes. Do not send repeated bolus requests to test the connection."
+        }
+    }
+    static func parse(_ data: Data) -> Self? {
+        struct Response: Decodable { let reason: String }
+        guard data.count <= 4096, let response = try? JSONDecoder().decode(Response.self, from: data) else { return nil }
+        return Self(rawValue: response.reason)
     }
 }
 
@@ -132,6 +173,7 @@ public struct StockBolusAttempt: Codable, Identifiable, Sendable {
     public let targetFingerprint: String
     public fileprivate(set) var submission: Submission
     public fileprivate(set) var phoneReviewCompleted: Bool
+    public fileprivate(set) var appleRejection: APNsBolusRejection?
     init(_ draft: StockBolusDraft) {
         id = draft.id; units = draft.units; createdAt = draft.createdAt; bundleID = draft.bundleID
         targetFingerprint = draft.targetFingerprint; submission = .attempting; phoneReviewCompleted = false
@@ -181,10 +223,10 @@ public actor StockBolusJournal {
         guard !existing.contains(where: { !$0.phoneReviewCompleted }), !existing.contains(where: { $0.id == draft.id }) else { throw StockBolusError.pendingReview }
         try persist(Array((existing + [StockBolusAttempt(draft)]).suffix(1000)))
     }
-    func record(_ id: UUID, submission: StockBolusAttempt.Submission) throws {
+    func record(_ id: UUID, submission: StockBolusAttempt.Submission, rejection: APNsBolusRejection? = nil) throws {
         var entries = try attempts()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { throw StockBolusError.storageUnavailable }
-        entries[index].submission = submission; try persist(entries)
+        entries[index].submission = submission; entries[index].appleRejection = rejection; try persist(entries)
     }
     public func finishPhoneReview(_ id: UUID) throws {
         var entries = try attempts()
@@ -243,7 +285,8 @@ public actor StockTrioBolusSender {
         defer { session.invalidateAndCancel() }
         let send: Transport = transport ?? { try await session.data(for: $0) }
         let response: URLResponse
-        do { (_, response) = try await send(request) }
+        let responseData: Data
+        do { (responseData, response) = try await send(request) }
         catch { try? await journal.record(draft.id, submission: .unknown); throw StockBolusError.uncertainTransport }
         guard let http = response as? HTTPURLResponse else {
             try? await journal.record(draft.id, submission: .unknown); throw StockBolusError.uncertainTransport
@@ -251,8 +294,9 @@ public actor StockTrioBolusSender {
         if http.statusCode == 200 { try await journal.record(draft.id, submission: .acceptedByApple) }
         else {
             if http.statusCode == 403 { await APNsProviderTokens.shared.invalidate(credentials.identity) }
-            try await journal.record(draft.id, submission: .rejectedByApple)
-            throw StockBolusError.appleRejected(http.statusCode)
+            let reason = APNsBolusRejection.parse(responseData)
+            try await journal.record(draft.id, submission: .rejectedByApple, rejection: reason)
+            throw StockBolusError.appleRejected(http.statusCode, reason)
         }
     }
 }

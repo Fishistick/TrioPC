@@ -14,6 +14,14 @@ This prototype has not been validated by sending a live bolus. Implementation ch
 
 ## Manual send and outcome handling
 
+### If Apple rejects the request
+
+An HTTP 403 is an APNs authentication or permission rejection, not a Trio dose-validation response. Check the APNs key in Apple Developer before considering another request: its Key ID must match the imported `.p8` file and belong to the team shown for the phone. Its permitted apps and APNs environments must include the phone's Trio topic and environment. A key that works for the Mac may be restricted to the Mac app or development environment while the phone uses production. Do not change the discovered phone environment just to match a key, and do not send a bolus as a credentials test.
+
+TrioPC retains only allowlisted Apple reason codes in the encrypted local attempt record and displays guidance alongside them. Unknown response content is not displayed or logged. Earlier versions discarded Apple's specific reason; those records remain readable but their missing reason cannot be reconstructed. The phone-review requirement and no-retry behavior apply to every committed attempt, including a rejection.
+
+Apple's [APNs response reference](https://developer.apple.com/documentation/usernotifications/handling-notification-responses-from-apns) explains errors such as `InvalidProviderToken`, `ExpiredProviderToken`, `Forbidden` and `BadEnvironmentKeyIdInToken`.
+
 Enter an amount yourself and choose Review bolus. Review does not send a command. The final button invokes macOS device-owner authentication (Touch ID or the Mac password). Unavailable/cancelled authentication blocks sending. The amount and target are frozen for that review, which expires after 60 seconds. TrioPC re-fetches the target and rechecks its local data freshness before sending. This prototype requires a Nightscout glucose reading no older than ten minutes and no more than one minute in the future; this check does not validate a dose.
 
 Before any POST, an encrypted local attempt record is written atomically and synchronised to disk. Its key is a separate, device-only Keychain item, created without replacing an existing key. A file lock prevents cooperating TrioPC instances from opening the same bolus journal concurrently. An unresolved prior attempt, corrupt record, missing key or storage failure blocks sending.

@@ -360,6 +360,13 @@ private struct StockBolusPanel: View {
                 Divider()
                 Text("Last local attempt: \(NSDecimalNumber(decimal: attempt.units).stringValue) U · \(attempt.createdAt.formatted())").font(DeskTheme.label)
                 Text(submissionLabel(attempt.submission)).font(DeskTheme.label).foregroundStyle(DeskTheme.warning)
+                if let reason = attempt.appleRejection {
+                    Text("Apple reason: \(reason.rawValue)").font(DeskTheme.code)
+                    Text(reason.guidance).font(DeskTheme.label)
+                } else if attempt.submission == .rejectedByApple {
+                    Text("The specific Apple error was not retained or recognised. It cannot be recovered from this record. Do not send a bolus just to test credentials.")
+                        .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+                }
                 if !attempt.phoneReviewCompleted {
                     Text("This attempt cannot be resent. Check Trio on your phone for delivery and any active bolus before preparing a separate new request.")
                         .font(DeskTheme.label)

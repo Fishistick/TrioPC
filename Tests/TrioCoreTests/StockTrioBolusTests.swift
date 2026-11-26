@@ -147,12 +147,31 @@ final class StockTrioBolusTests: XCTestCase {
         let directory = try directory(); defer { try? FileManager.default.removeItem(at: directory) }
         let journal = try StockBolusJournal(url: directory.appendingPathComponent("journal.enc"), keyData: Data(repeating: 8, count: 32))
         let (credentials, reply) = try credentials(); let profile = try profile(); let draft = try draft()
+        let capture = BolusRequestCapture()
         let sender = StockTrioBolusSender(transport: { request in
-            (Data(), HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!)
+            await capture.add(request)
+            return (Data(#"{"reason":"BadEnvironmentKeyIdInToken"}"#.utf8), HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!)
         })
-        do { try await sender.send(draft, profile: profile, sharedSecret: secret, reply: reply, credentials: credentials, journal: journal, now: now); XCTFail() } catch { }
+        do { try await sender.send(draft, profile: profile, sharedSecret: secret, reply: reply, credentials: credentials, journal: journal, now: now); XCTFail() }
+        catch { XCTAssertTrue(error.localizedDescription.contains("BadEnvironmentKeyIdInToken")) }
         let records = try await journal.attempts()
         XCTAssertEqual(records.first?.submission, .rejectedByApple); XCTAssertEqual(records.first?.phoneReviewCompleted, false)
+        XCTAssertEqual(records.first?.appleRejection, .badEnvironmentKeyIdInToken)
+        let calls = await capture.all(); XCTAssertEqual(calls.count, 1)
+        do { try await sender.send(try self.draft(), profile: profile, sharedSecret: secret, reply: reply, credentials: credentials, journal: journal, now: now); XCTFail() } catch { }
+        let stillOneCall = await capture.all(); XCTAssertEqual(stillOneCall.count, 1)
+    }
+
+    func testAppleReasonsAreAllowlistedAndOldRecordsRemainReadable() throws {
+        XCTAssertEqual(APNsBolusRejection.parse(Data(#"{"reason":"InvalidProviderToken"}"#.utf8)), .invalidProviderToken)
+        for text in [#"{"reason":"private-server-content"}"#, "not JSON", String(repeating: "x", count: 4097)] {
+            XCTAssertNil(APNsBolusRejection.parse(Data(text.utf8)))
+        }
+        let record = StockBolusAttempt(try draft())
+        let encoded = try JSONEncoder().encode(record)
+        let old = try JSONDecoder().decode(StockBolusAttempt.self, from: encoded)
+        XCTAssertNil(old.appleRejection)
+        XCTAssertFalse(old.phoneReviewCompleted)
     }
 
     func testProfileReadOnlyFetchAndStrictMetadata() async throws {

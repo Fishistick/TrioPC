@@ -1,6 +1,7 @@
 import SwiftUI
 import Charts
 import TrioCore
+import AppKit
 
 struct Dashboard: View {
     @EnvironmentObject var model: AppModel
@@ -30,6 +31,12 @@ struct Dashboard: View {
             }
         }.font(DeskTheme.body).foregroundStyle(DeskTheme.ink).background(DeskTheme.canvas).tint(DeskTheme.accent)
             .sheet(isPresented: $showConnection) { ConnectionView().padding(28).frame(width: 480) }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                Task { await model.refresh() }
+            }
+            .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+                Task { await model.refresh() }
+            }
     }
 
     private var overview: some View {
@@ -244,6 +251,8 @@ struct CommandLab: View {
             Label("Live control is not available in this build.", systemImage: "lock.shield").font(DeskTheme.label).foregroundStyle(DeskTheme.muted)
             Divider()
             PushDiagnostics()
+            Divider()
+            ResponseHistoryPanel()
         }.padding(24).frame(maxWidth: .infinity, alignment: .leading).deskSurface()
     }
     @ViewBuilder private func simulationButtons(_ command: SimulatedCommand) -> some View {
@@ -252,6 +261,55 @@ struct CommandLab: View {
         Button("Lose response") { model.advance(.uncertain) }
         Button("Stop at 50%") { model.advance(.partial) }
         Button("Complete") { model.advance(.completed) }
+    }
+}
+
+private struct ResponseHistoryPanel: View {
+    @EnvironmentObject var model: AppModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Response history").font(DeskTheme.section)
+                Spacer()
+                Button(model.historyRefreshing ? "Checking…" : "Check history") { Task { await model.refreshResponseHistory() } }
+                    .disabled(model.demo || model.historyRefreshing)
+            }
+            Text("Recover saved Trio responses from your existing Nightscout server. Requires the separate, opt-in Trio history patch.")
+                .font(DeskTheme.label).foregroundStyle(DeskTheme.muted)
+            if model.demo {
+                Text("Connect Nightscout in Connection settings first.").font(DeskTheme.label)
+            } else {
+                SecureField("Trio remote-control shared secret", text: $model.historySharedSecret).textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Trio history shared secret")
+                Text("Used to decrypt and verify history. Saved separately in this Mac’s Keychain.").font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+                HStack {
+                    Button("Save history secret") { Task { await model.saveHistorySecret() } }
+                        .disabled(model.historySharedSecret.isEmpty || model.historyRefreshing)
+                    if model.historyPaired { Button("Forget history secret and cache") { model.forgetHistorySecret() }.disabled(model.historyRefreshing) }
+                }
+            }
+            Text(model.historyMessage).font(DeskTheme.label)
+            if let synced = model.historyLastSync {
+                Text("Last checked: \(synced.formatted())").font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+            }
+            ForEach(model.historyEvents.prefix(20)) { event in
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text(event.kind == .synthetic ? "History connection test" : event.reply.commandType.replacingOccurrences(of: "_", with: " ").capitalized).font(DeskTheme.label)
+                        Spacer()
+                        Text(Date(timeIntervalSince1970: event.recordedAt).formatted()).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+                    }
+                    Text(event.reply.aps.alert.body).textSelection(.enabled)
+                    Text(event.kind == .synthetic ? "Synthetic history test; no command was executed." : event.reply.interpretation)
+                        .font(DeskTheme.small).foregroundStyle(event.kind == .synthetic ? DeskTheme.muted : DeskTheme.warning)
+                }.padding(.vertical, 8)
+                Divider()
+            }
+            Text(model.historyPaired
+                 ? "Records are verified with the paired secret. Legacy replies do not identify an original command or verify completed insulin delivery. The 20 newest cached responses are shown."
+                 : "Pair history to verify saved responses. These advisory replies cannot verify completed insulin delivery.")
+                .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+        }
     }
 }
 

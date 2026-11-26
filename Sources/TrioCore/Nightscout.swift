@@ -95,7 +95,25 @@ public struct NightscoutClient: Sendable {
         return try await Snapshot(glucose: readings.sorted { $0.date < $1.date }, treatments: treatments)
     }
 
+    public func fetchResponseHistory() async throws -> ResponseHistoryPage {
+        var request = request(path: "api/v1/devicestatus.json", count: ResponseHistoryPage.limit)
+        var parts = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
+        parts.queryItems?.append(URLQueryItem(name: "find[device]", value: "TrioPC-response-v1"))
+        request.url = parts.url
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let session = URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let send: Transport = transport ?? { try await session.data(for: $0) }
+        return try ResponseHistoryPage.parse(await loadData(request, send: send))
+    }
+
     private func load<T: Decodable & Sendable>(_ request: URLRequest, send: Transport) async throws -> T {
+        let data = try await loadData(request, send: send)
+        do { return try JSONDecoder().decode(T.self, from: data) }
+        catch { throw ConnectionError.malformedData }
+    }
+
+    private func loadData(_ request: URLRequest, send: Transport) async throws -> Data {
         let (data, response) = try await send(request)
         guard let http = response as? HTTPURLResponse else { throw ConnectionError.malformedData }
         switch http.statusCode {
@@ -104,7 +122,7 @@ public struct NightscoutClient: Sendable {
         case 401, 403: throw ConnectionError.unauthorized
         default: throw ConnectionError.server(http.statusCode)
         }
-        do { return try JSONDecoder().decode(T.self, from: data) }
-        catch { throw ConnectionError.malformedData }
+        guard data.count <= 2_097_152 else { throw ConnectionError.malformedData }
+        return data
     }
 }

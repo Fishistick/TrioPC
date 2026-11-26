@@ -9,6 +9,7 @@ struct TrioPCApp: App {
             Dashboard().environmentObject(model)
                 .frame(minWidth: 820, minHeight: 620)
                 .task {
+                    await model.resumeSavedConnection()
                     while !Task.isCancelled {
                         await model.refresh()
                         do { try await Task.sleep(for: .seconds(60)) }

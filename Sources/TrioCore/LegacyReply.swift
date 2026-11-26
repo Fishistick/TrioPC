@@ -2,15 +2,15 @@ import Foundation
 
 /// A legacy Trio notification is advisory. It lacks command identity and delivery evidence.
 /// Never use it to mutate command execution state or infer zero/full insulin delivery.
-public struct LegacyReply: Decodable, Sendable, Equatable {
+public struct LegacyReply: Codable, Sendable, Equatable {
     public let commandStatus: String
     public let commandType: String
     public let timestamp: TimeInterval
     public let aps: APS
-    public struct APS: Decodable, Sendable, Equatable {
+    public struct APS: Codable, Sendable, Equatable {
         public let alert: Alert
     }
-    public struct Alert: Decodable, Sendable, Equatable {
+    public struct Alert: Codable, Sendable, Equatable {
         public let title: String
         public let body: String
     }

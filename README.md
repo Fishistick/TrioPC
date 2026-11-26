@@ -14,6 +14,7 @@ A native SwiftUI Mac companion for Trio and Nightscout. macOS 14 or later; no El
 
 - Opt-in APNs registration and an advisory legacy-reply inspector in Command lab, using a separately provisioned Xcode app target.
 - An outgoing APNs diagnostic that sends a fixed synthetic notification back to this Mac, with credentials in Keychain and a matching test ID to confirm receipt.
+- An encrypted Nightscout advisory-response history reader with duplicate/conflict handling and an encrypted local cache. Requires the [separate opt-in Trio publisher patch](integrations/trio-v1.0.2/README.md); it is not active in unmodified Trio. See [setup and coverage limits](docs/response-history.md).
 
 **Live bolus commands and remote cancellation are not implemented.** The simulator cannot send insulin commands. The APNs receiver does not correlate commands or verify insulin delivery. It is not a validated dosing system. Nightscout treatment history is not command confirmation.
 
@@ -33,9 +34,9 @@ For APNs registration and the outgoing self-test, open `TrioPC.xcodeproj`, confi
 
 ## Connect your server
 
-Open **Connection settings**. Enter the final HTTPS Nightscout address and its API secret (not an access-token URL). A blank secret works only where your server allows public reads. Use the API secret locally; do not commit credentials or send them in chat. Click Connect. The app reads `/api/v1/entries/sgv.json` and `/api/v1/treatments.json` using GET requests. It makes no Nightscout writes. Servers behind a separate login proxy or with private/self-signed TLS certificates need compatible network configuration; certificate checks are not bypassed.
+Open **Connection settings**. Enter the final HTTPS Nightscout address and its API secret (not an access-token URL). A blank secret works only where your server allows public reads. Use the API secret locally; do not commit credentials or send them in chat. Click Connect. The app reads `/api/v1/entries/sgv.json`, `/api/v1/treatments.json` and filtered `/api/v1/devicestatus.json` using GET requests. It makes no Nightscout writes. Servers behind a separate login proxy or with private/self-signed TLS certificates need compatible network configuration; certificate checks are not bypassed.
 
-The app starts with sample data every launch until you connect. It saves your server address and unit preference in UserDefaults and the API secret in Keychain. Sample mode disconnects the active client. Last-fetched data remains visible on refresh failure and reading age indicates staleness.
+The app starts with sample data before the first connection and resumes a saved connection on later launches. It saves your server address and unit preference in UserDefaults and the API secret in Keychain. Selecting sample mode disconnects and disables automatic reconnect until Connect is selected again. Last-fetched data remains visible on refresh failure and reading age indicates staleness.
 
 ## Development boundaries
 
@@ -47,8 +48,10 @@ See [the control design](docs/control-design.md) for the remaining work. The fir
 
 Connection settings stay on the Mac. This app has no analytics or telemetry. Monitoring sends read requests only to the Nightscout server configured locally. Opt-in notification registration and the self-test contact Apple; device tokens and received reply messages stay in memory and are not logged. APNs credentials are stored in a separate Keychain item; the private key never leaves the Mac, while a signed provider token is sent to Apple over TLS. The Copy device token action places the token on the system clipboard. Repository examples and simulated readings are synthetic. Never attach personal health records, real server addresses, API secrets, access tokens or APNs credentials to an issue or pull request.
 
+The latest synthetic APNs test's ID, time, state and delivery-log ID are saved locally for restart recovery. Nightscout history uses a separate per-server Keychain pairing secret and stores only encrypted history records in its local cache. Decrypted history is held in memory for display. The separate phone patch, when enabled, uploads encrypted advisory responses to the already configured Nightscout server. It is not installed or enabled by building the Mac app.
+
 See [the roadmap](docs/roadmap.md) for planned work, including a Trio-style chart with active carbohydrates (COB) and active insulin (IOB).
 
 ## License
 
-Original TrioPC code is available under the [MIT license](LICENSE). Trio and other referenced projects retain their own licenses. No upstream Trio source is bundled here.
+Original TrioPC code is available under the [MIT license](LICENSE). Trio and other referenced projects retain their own licenses. The separate integration patch contains upstream context under [Trio's MIT notice](integrations/trio-v1.0.2/UPSTREAM-LICENSE.txt).

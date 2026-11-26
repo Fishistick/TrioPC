@@ -379,6 +379,7 @@ private struct StockBolusPanel: View {
             }
             Divider()
             Text("Replies from Trio").font(DeskTheme.section)
+            Text(push.macReadiness).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             Text("Checked automatically when you return to TrioPC or wake your Mac.")
                 .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             Text("Missing replies? Keep the Mac plugged in and awake, let a low battery recover, then use the reply test below. macOS may still delay delivery while charging. A passed test checks reception at that moment; future delivery is not guaranteed.")
@@ -391,9 +392,11 @@ private struct StockBolusPanel: View {
                 .disabled(replyTest.busy || replyTest.test?.waiting == true || push.deviceToken == nil)
             Text("Sends one clearly labelled synthetic reply to this Mac, using the saved Mac key. No command is sent to Trio. Tests Mac reception, not the phone’s sending step.")
                 .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
-            if replyTest.test?.replyFormat == true {
+            if replyTest.replyTestRequested || replyTest.test?.replyFormat == true {
                 Text(replyTest.message).font(DeskTheme.label).textSelection(.enabled)
-                Text("Mac reply test: \(replyTest.testStatus)").font(DeskTheme.small)
+                if replyTest.test?.replyFormat == true {
+                    Text("Mac reply test: \(replyTest.testStatus)").font(DeskTheme.small)
+                }
             }
             if let reply = push.reply {
                 Text(reply.aps.alert.body).textSelection(.enabled)

@@ -6,6 +6,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import CryptoKit
 import LocalAuthentication
+import IOKit.ps
 
 @MainActor
 final class PushReceiver: ObservableObject {
@@ -16,6 +17,7 @@ final class PushReceiver: ObservableObject {
     @Published private(set) var receivedAt: Date?
     @Published private(set) var testReceipt: LoopbackReceipt?
     @Published private(set) var conditions = "Checking notification settings…"
+    @Published private(set) var macReadiness = "Checking this Mac…"
     @Published private(set) var replyRecovery = "Existing replies on this Mac have not been checked yet."
     private var checkingReplies = false
     private var authorizationGranted = false
@@ -60,6 +62,20 @@ final class PushReceiver: ObservableObject {
         }
         authorizationGranted = snapshot.1
         conditions = "\(snapshot.0) · Low Power Mode: \(ProcessInfo.processInfo.isLowPowerModeEnabled ? "on" : "off")"
+        var power = "Battery information unavailable"
+        if let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+           let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] {
+            for source in sources {
+                guard let details = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
+                      let current = details[kIOPSCurrentCapacityKey] as? Int,
+                      let maximum = details[kIOPSMaxCapacityKey] as? Int, maximum > 0 else { continue }
+                let pluggedIn = details[kIOPSPowerSourceStateKey] as? String == kIOPSACPowerValue
+                let charging = details[kIOPSIsChargingKey] as? Bool == true
+                power = "Battery: \(Int(Double(current) / Double(maximum) * 100))% · \(charging ? "charging" : pluggedIn ? "plugged in" : "on battery")"
+                break
+            }
+        }
+        macReadiness = "\(power) · TrioPC: \(NSApplication.shared.isActive ? "active" : "in background")"
     }
 
     func recoverAfterWake() async {
@@ -162,6 +178,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidBecomeActive(_ notification: Notification) { recoverPush() }
+    func applicationDidResignActive(_ notification: Notification) {
+        Task { await PushReceiver.shared.refreshConditions() }
+    }
 
     @objc nonisolated private func recoverPush() {
         // System power notifications may be posted off the main thread.
@@ -215,6 +234,7 @@ struct PushDiagnostics: View {
             Text(push.state).font(DeskTheme.body)
             Text("Environment: \(push.environment ?? "Not provisioned")").font(DeskTheme.label).foregroundStyle(DeskTheme.muted)
             Text(push.conditions).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
+            Text(push.macReadiness).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             Button("Check Notification Center for Trio replies") { Task { await push.recoverDeliveredReplies() } }
             Text(push.replyRecovery).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             Text("macOS can delay replies for power reasons, including while charging and with Low Power Mode off. Registration alone does not confirm that replies can arrive.")
@@ -260,6 +280,7 @@ final class APNsSenderModel: ObservableObject {
     @Published private(set) var hasKey = false
     @Published private(set) var saved = false
     @Published private(set) var busy = false
+    @Published private(set) var replyTestRequested = false
     @Published private(set) var message = "Import an APNs signing key to send a synthetic notification to this Mac."
     @Published private(set) var test: LoopbackTest? { didSet { persistCheckpoint() } }
     @Published private(set) var deliveryLogID: String? { didSet { persistCheckpoint() } }
@@ -383,6 +404,22 @@ final class APNsSenderModel: ObservableObject {
 
     func testReplyPathToThisMac() async {
         guard !busy, test?.waiting != true else { return }
+        replyTestRequested = true
+        // A visible window is not proof of foreground status, especially during automation.
+        // Reserve the operation across activation awaits so a second click cannot send twice.
+        busy = true
+        NSApplication.shared.activate()
+        for _ in 0..<10 {
+            if NSApplication.shared.isActive { break }
+            do { try await Task.sleep(for: .milliseconds(100)) } catch {
+                busy = false; message = "Reply test cancelled before sending."; return
+            }
+        }
+        busy = false
+        guard NSApplication.shared.isActive else {
+            message = "No test sent. Select TrioPC on your Mac to bring it to the foreground, then try the reply test again."
+            return
+        }
         guard load() else { return }
         await sendToThisMac(replyFormat: true)
     }

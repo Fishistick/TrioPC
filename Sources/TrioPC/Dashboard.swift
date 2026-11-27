@@ -382,7 +382,7 @@ private struct StockBolusPanel: View {
             Text(push.macReadiness).font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             Text("Checked automatically when you return to TrioPC or wake your Mac.")
                 .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
-            Text("Missing replies? Keep the Mac plugged in and awake, let a low battery recover, then use the reply test below. macOS may still delay delivery while charging. A passed test checks reception at that moment; future delivery is not guaranteed.")
+            Text("Replies can be lost if macOS delays them or its push connection is unavailable. Use the Mac-only test below to check reception now. Registration and battery level do not guarantee delivery; a passed test checks reception at that moment.")
                 .font(DeskTheme.small).foregroundStyle(DeskTheme.muted)
             Button("Check for existing replies") { Task { await push.recoverDeliveredReplies() } }
             Text("Checks notifications already on this Mac. Sends nothing to your phone.")

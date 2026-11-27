@@ -440,11 +440,13 @@ final class APNsSenderModel: ObservableObject {
                     }
                     if attempt == 14, var delayed = self.test, delayed.waiting {
                         delayed.unknown(); self.test = delayed
-                        self.message = "No return within 30 seconds. Still checking for up to 5 minutes; macOS may defer delivery on battery. No resend was sent."
+                        self.message = pending.replyFormat == true
+                            ? "No reply test received within 30 seconds. An immediate-only notification may already have expired. Still checking this Mac for its receipt; no retry was sent."
+                            : "No test received within 30 seconds. Apple may be holding it for power or connection reasons. Checking for up to 5 minutes; no retry was sent."
                     }
                 }
                 guard let self, let current = self.test, current.id == pending.id, current.state == .unconfirmed else { return }
-                self.message = "No matching return within 5 minutes. Check Apple’s delivery log ID for power deferral or expiry. No automatic resend was sent."
+                self.message = "No matching return within 5 minutes. Check Apple’s delivery log ID for power deferral, an offline device or expiry. No automatic resend was sent."
             }
             let submission = try await sender.send(pending, to: recipient, credentials: credentials)
             deliveryLogID = submission.deliveryLogID

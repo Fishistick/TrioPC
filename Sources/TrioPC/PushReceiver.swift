@@ -405,21 +405,8 @@ final class APNsSenderModel: ObservableObject {
     func testReplyPathToThisMac() async {
         guard !busy, test?.waiting != true else { return }
         replyTestRequested = true
-        // A visible window is not proof of foreground status, especially during automation.
-        // Reserve the operation across activation awaits so a second click cannot send twice.
-        busy = true
-        NSApplication.shared.activate()
-        for _ in 0..<10 {
-            if NSApplication.shared.isActive { break }
-            do { try await Task.sleep(for: .milliseconds(100)) } catch {
-                busy = false; message = "Reply test cancelled before sending."; return
-            }
-        }
-        busy = false
-        guard NSApplication.shared.isActive else {
-            message = "No test sent. Select TrioPC on your Mac to bring it to the foreground, then try the reply test again."
-            return
-        }
+        // Background reception is an intended test condition, not a reason to block a test.
+        // Loading and the sender's busy guard run without an intervening suspension.
         guard load() else { return }
         await sendToThisMac(replyFormat: true)
     }
